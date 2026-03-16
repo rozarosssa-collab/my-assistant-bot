@@ -11,7 +11,7 @@ from apscheduler.triggers.cron import CronTrigger
 import pytz
 from analytics import run_daily_digest
 from tracker import run_tracker
-from weekly_forecast import run_weekly_forecast, run_monday_plan
+from weekly_report import run_weekly_report, run_monday_plan
 from viral_alert import run_viral_check, get_transcript
 
 load_dotenv()

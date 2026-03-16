@@ -241,7 +241,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
-    await update.message.reply_text(
+await update.message.reply_text(
         "✅ Бот запущен.\n\n"
         "🎯 Режимы:\n"
         "💡 режим: идеи — генерация идей\n"
@@ -265,7 +265,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/remember текст — 🧠 запомнить навсегда\n"
         "/memory — 💾 показать память\n"
         "/guide — 📖 полное руководство\n\n"
-        "🎤 Голосовые сообщения — просто отправь голосовое!"
+        "🎤 Голосовые сообщения — просто отправь голосовое!\n\n"
+        "🌐 Веб-версия: https://anna-bot-web.vercel.app"
     )
 async def guide_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):

@@ -14,6 +14,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ANTHROPIC_KEY = os.getenv("ANTHROPIC_KEY")
 MY_TELEGRAM_ID = int(os.getenv("MY_TELEGRAM_ID"))
 HISTORY_FILE = "history.json"
+MEMORY_FILE = "memory.txt"
 MAX_HISTORY = 30
 
 client = Anthropic(api_key=ANTHROPIC_KEY)
@@ -34,6 +35,16 @@ def save_history(history):
 def trim_history(history):
     return history[-MAX_HISTORY:]
 
+def load_memory():
+    if os.path.exists(MEMORY_FILE):
+        with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+            return f.read()
+    return ""
+
+def save_memory(text):
+    with open(MEMORY_FILE, "a", encoding="utf-8") as f:
+        f.write(f"\n- {text}")
+
 def is_authorized(update: Update) -> bool:
     return update.effective_user.id == MY_TELEGRAM_ID
 
@@ -46,10 +57,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     history = load_history()
     history.append({"role": "user", "content": user_text})
     history = trim_history(history)
+    memory = load_memory()
+    system_with_memory = SYSTEM_PROMPT
+    if memory:
+        system_with_memory += f"\n\n== ДОЛГОСРОЧНАЯ ПАМЯТЬ ==\n{memory}"
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=2000,
-        system=SYSTEM_PROMPT,
+        system=system_with_memory,
         messages=history
     )
     reply = response.content[0].text
@@ -66,14 +81,33 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     await update.message.reply_text(
-        "✅ Бот запущен.\n\nРежимы:\nрежим: идеи\nрежим: скрипт\nрежим: анализ\nрежим: бенд\nрежим: стратегия\nрежим: критик\nрежим: reddit\n\n/clear — очистить память\n/digest — запустить аналитику сейчас"
+        "✅ Бот запущен.\n\nРежимы:\nрежим: идеи\nрежим: скрипт\nрежим: анализ\nрежим: бенд\nрежим: стратегия\nрежим: критик\nрежим: reddit\n\n/clear — очистить историю\n/digest — аналитика сейчас\n/remember текст — запомнить навсегда\n/memory — показать память"
     )
 
 async def clear_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     save_history([])
-    await update.message.reply_text("🧹 Память очищена.")
+    await update.message.reply_text("🧹 История очищена.")
+
+async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    text = " ".join(context.args)
+    if not text:
+        await update.message.reply_text("Напиши что запомнить. Пример:\n/remember я перешёл в нишу космоса")
+        return
+    save_memory(text)
+    await update.message.reply_text(f"✅ Запомнил: {text}")
+
+async def show_memory(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    memory = load_memory()
+    if memory:
+        await update.message.reply_text(f"🧠 Моя память:\n{memory}")
+    else:
+        await update.message.reply_text("Память пустая.")
 
 async def manual_digest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
@@ -95,8 +129,10 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("clear", clear_history))
     app.add_handler(CommandHandler("digest", manual_digest))
+    app.add_handler(CommandHandler("remember", remember))
+    app.add_handler(CommandHandler("memory", show_memory))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("✅ Бот запущен с аналитикой в 9:00 по Киеву...")
+    print("✅ Бот запущен...")
     app.run_polling()
 
 if __name__ == "__main__":

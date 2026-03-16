@@ -9,6 +9,7 @@ from apscheduler.triggers.cron import CronTrigger
 import pytz
 from analytics import run_daily_digest
 from tracker import run_tracker
+from weekly_report import run_weekly_report
 
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -82,7 +83,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     await update.message.reply_text(
-        "✅ Бот запущен.\n\nРежимы:\nрежим: идеи\nрежим: скрипт\nрежим: анализ\nрежим: бенд\nрежим: стратегия\nрежим: критик\nрежим: reddit\n\n/clear — очистить историю\n/digest — аналитика конкурентов\n/tracker — статистика твоих каналов\n/remember текст — запомнить\n/memory — показать память"
+        "✅ Бот запущен.\n\n"
+        "Режимы:\n"
+        "режим: идеи\nрежим: скрипт\nрежим: анализ\nрежим: бенд\n"
+        "режим: стратегия\nрежим: критик\nрежим: reddit\n\n"
+        "Команды:\n"
+        "/clear — очистить историю\n"
+        "/digest — аналитика конкурентов\n"
+        "/tracker — статистика твоих каналов\n"
+        "/weekly — еженедельный отчёт\n"
+        "/remember текст — запомнить навсегда\n"
+        "/memory — показать память"
     )
 
 async def clear_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -110,6 +121,12 @@ async def show_memory(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Память пустая.")
 
+async def manual_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    await update.message.reply_text("⏳ Генерирую еженедельный отчёт...")
+    run_weekly_report()
+
 async def manual_tracker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
@@ -133,6 +150,7 @@ async def post_init(application):
     kyiv_tz = pytz.timezone("Europe/Kiev")
     scheduler.add_job(scheduled_digest, CronTrigger(hour=9, minute=0, timezone=kyiv_tz))
     scheduler.add_job(scheduled_tracker, CronTrigger(hour=9, minute=5, timezone=kyiv_tz))
+    scheduler.add_job(run_weekly_report, CronTrigger(day_of_week="sun", hour=10, minute=0, timezone=kyiv_tz))
     scheduler.start()
 
 def main():
@@ -141,6 +159,7 @@ def main():
     app.add_handler(CommandHandler("clear", clear_history))
     app.add_handler(CommandHandler("digest", manual_digest))
     app.add_handler(CommandHandler("tracker", manual_tracker))
+    app.add_handler(CommandHandler("weekly", manual_weekly))
     app.add_handler(CommandHandler("remember", remember))
     app.add_handler(CommandHandler("memory", show_memory))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

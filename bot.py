@@ -10,7 +10,7 @@ import pytz
 from analytics import run_daily_digest
 from tracker import run_tracker
 from weekly_report import run_weekly_report
-from viral_alert import run_viral_check, get_transcript, send_telegram
+from viral_alert import run_viral_check, get_transcript
 
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -85,18 +85,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(
         "✅ Бот запущен.\n\n"
-        "Режимы:\n"
-        "режим: идеи\nрежим: скрипт\nрежим: анализ\nрежим: бенд\n"
-        "режим: стратегия\nрежим: критик\nрежим: reddit\n\n"
-        "Команды:\n"
-        "/clear — очистить историю\n"
-        "/digest — аналитика конкурентов\n"
-        "/tracker — статистика твоих каналов\n"
-        "/weekly — еженедельный отчёт\n"
-        "/viral — проверить вирусные видео сейчас\n"
-        "/transcript ссылка — транскрипция видео\n"
-        "/remember текст — запомнить навсегда\n"
-        "/memory — показать память"
+        "🎯 Режимы:\n"
+        "💡 режим: идеи — генерация идей\n"
+        "✍️ режим: скрипт — написание скрипта\n"
+        "🔍 режим: анализ — анализ скрипта конкурента\n"
+        "🌀 режим: бенд — Niche Bending\n"
+        "📊 режим: стратегия — YouTube стратегия\n"
+        "🔥 режим: критик — жёсткая оценка идей\n"
+        "👾 режим: reddit — Reddit канал\n\n"
+        "⚙️ Команды:\n"
+        "/clear — 🧹 очистить историю\n"
+        "/digest — 📰 аналитика конкурентов\n"
+        "/tracker — 📈 статистика твоих каналов\n"
+        "/weekly — 📊 еженедельный отчёт\n"
+        "/viral — 🚨 проверить вирусные видео\n"
+        "/transcript ссылка — 📝 транскрипция видео\n"
+        "/remember текст — 🧠 запомнить навсегда\n"
+        "/memory — 💾 показать память"
     )
 
 async def clear_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -120,7 +125,7 @@ async def show_memory(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     memory = load_memory()
     if memory:
-        await update.message.reply_text(f"🧠 Моя память:\n{memory}")
+        await update.message.reply_text(f"💾 Моя память:\n{memory}")
     else:
         await update.message.reply_text("Память пустая.")
 

@@ -84,7 +84,6 @@ async def manual_digest(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def scheduled_digest():
     run_daily_digest()
 
-def main():
 async def post_init(application):
     scheduler = AsyncIOScheduler()
     kyiv_tz = pytz.timezone("Europe/Kiev")

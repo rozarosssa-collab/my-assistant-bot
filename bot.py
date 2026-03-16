@@ -10,6 +10,7 @@ import pytz
 from analytics import run_daily_digest
 from tracker import run_tracker
 from weekly_report import run_weekly_report
+from viral_alert import run_viral_check, get_transcript, send_telegram
 
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -92,6 +93,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/digest — аналитика конкурентов\n"
         "/tracker — статистика твоих каналов\n"
         "/weekly — еженедельный отчёт\n"
+        "/viral — проверить вирусные видео сейчас\n"
+        "/transcript ссылка — транскрипция видео\n"
         "/remember текст — запомнить навсегда\n"
         "/memory — показать память"
     )
@@ -139,11 +142,68 @@ async def manual_digest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ Запускаю аналитику конкурентов...")
     run_daily_digest()
 
+async def manual_viral(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    await update.message.reply_text("⏳ Проверяю вирусные видео...")
+    run_viral_check()
+
+async def transcript_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    if not context.args:
+        await update.message.reply_text("Укажи ссылку.\nПример: /transcript https://youtube.com/watch?v=xxxxx")
+        return
+    url = context.args[0]
+    video_id = None
+    if "v=" in url:
+        video_id = url.split("v=")[1].split("&")[0]
+    elif "youtu.be/" in url:
+        video_id = url.split("youtu.be/")[1].split("?")[0]
+    if not video_id:
+        await update.message.reply_text("Не могу извлечь ID видео. Проверь ссылку.")
+        return
+    await update.message.reply_text("⏳ Получаю транскрипцию...")
+    transcript = get_transcript(video_id)
+    if not transcript:
+        await update.message.reply_text("❌ Транскрипция недоступна для этого видео.")
+        return
+    prompt = f"""
+Это транскрипция YouTube видео.
+
+ТРАНСКРИПЦИЯ:
+{transcript}
+
+Сделай полный анализ:
+1. HOOK — что именно зацепило в первые 3-5 секунд
+2. СТРУКТУРА — breakdown по частям
+3. ВИРУСНЫЕ ТРИГГЕРЫ — что держит зрителя
+4. ТЕМП И ПАУЗЫ — где ускорение, где замедление
+5. КАК АДАПТИРОВАТЬ для 3D анимации в стиле Zach D Films
+6. ГОТОВЫЙ СКРИПТ-НАБРОСОК для похожего видео
+"""
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=2000,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    result = f"📝 <b>ТРАНСКРИПЦИЯ:</b>\n{transcript[:1000]}...\n\n"
+    result += f"🧠 <b>АНАЛИЗ:</b>\n{response.content[0].text}"
+    if len(result) > 4000:
+        parts = [result[i:i+4000] for i in range(0, len(result), 4000)]
+        for part in parts:
+            await update.message.reply_text(part, parse_mode="HTML")
+    else:
+        await update.message.reply_text(result, parse_mode="HTML")
+
 async def scheduled_digest():
     run_daily_digest()
 
 async def scheduled_tracker():
     run_tracker()
+
+async def scheduled_viral():
+    run_viral_check()
 
 async def post_init(application):
     scheduler = AsyncIOScheduler()
@@ -151,6 +211,7 @@ async def post_init(application):
     scheduler.add_job(scheduled_digest, CronTrigger(hour=9, minute=0, timezone=kyiv_tz))
     scheduler.add_job(scheduled_tracker, CronTrigger(hour=9, minute=5, timezone=kyiv_tz))
     scheduler.add_job(run_weekly_report, CronTrigger(day_of_week="sun", hour=10, minute=0, timezone=kyiv_tz))
+    scheduler.add_job(scheduled_viral, CronTrigger(hour="*/3", timezone=kyiv_tz))
     scheduler.start()
 
 def main():
@@ -160,6 +221,8 @@ def main():
     app.add_handler(CommandHandler("digest", manual_digest))
     app.add_handler(CommandHandler("tracker", manual_tracker))
     app.add_handler(CommandHandler("weekly", manual_weekly))
+    app.add_handler(CommandHandler("viral", manual_viral))
+    app.add_handler(CommandHandler("transcript", transcript_command))
     app.add_handler(CommandHandler("remember", remember))
     app.add_handler(CommandHandler("memory", show_memory))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

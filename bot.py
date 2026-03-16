@@ -85,17 +85,18 @@ async def scheduled_digest():
     run_daily_digest()
 
 def main():
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("clear", clear_history))
-    app.add_handler(CommandHandler("digest", manual_digest))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
+async def post_init(application):
     scheduler = AsyncIOScheduler()
     kyiv_tz = pytz.timezone("Europe/Kiev")
     scheduler.add_job(scheduled_digest, CronTrigger(hour=9, minute=0, timezone=kyiv_tz))
     scheduler.start()
 
+def main():
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).post_init(post_init).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("clear", clear_history))
+    app.add_handler(CommandHandler("digest", manual_digest))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     print("✅ Бот запущен с аналитикой в 9:00 по Киеву...")
     app.run_polling()
 

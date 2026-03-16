@@ -1,5 +1,7 @@
 import os
 import json
+import tempfile
+import requests
 from dotenv import load_dotenv
 from anthropic import Anthropic
 from telegram import Update
@@ -16,6 +18,8 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ANTHROPIC_KEY = os.getenv("ANTHROPIC_KEY")
 MY_TELEGRAM_ID = int(os.getenv("MY_TELEGRAM_ID"))
+OPENAI_KEY = os.getenv("OPENAI_KEY")
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 HISTORY_FILE = "history.json"
 MEMORY_FILE = "memory.txt"
 MAX_HISTORY = 30
@@ -51,6 +55,58 @@ def save_memory(text):
 def is_authorized(update: Update) -> bool:
     return update.effective_user.id == MY_TELEGRAM_ID
 
+def extract_video_id(url):
+    if "v=" in url:
+        return url.split("v=")[1].split("&")[0]
+    elif "youtu.be/" in url:
+        return url.split("youtu.be/")[1].split("?")[0]
+    return None
+
+def get_channel_full_report(handle):
+    url = "https://www.googleapis.com/youtube/v3/channels"
+    params = {"part": "statistics,snippet,brandingSettings", "forHandle": handle, "key": YOUTUBE_API_KEY}
+    r = requests.get(url, params=params).json()
+    if not r.get("items"):
+        return None, None
+    item = r["items"][0]
+    return item["statistics"], item["snippet"], item["id"]
+
+def get_top_videos_channel(channel_id, max_results=10):
+    from datetime import datetime, timedelta
+    published_after = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    url = "https://www.googleapis.com/youtube/v3/search"
+    params = {
+        "part": "snippet",
+        "channelId": channel_id,
+        "publishedAfter": published_after,
+        "order": "viewCount",
+        "maxResults": max_results,
+        "type": "video",
+        "key": YOUTUBE_API_KEY
+    }
+    r = requests.get(url, params=params).json()
+    items = r.get("items", [])
+    if not items:
+        return []
+    video_ids = [v["id"]["videoId"] for v in items if "videoId" in v.get("id", {})]
+    if not video_ids:
+        return []
+    stats_r = requests.get(
+        "https://www.googleapis.com/youtube/v3/videos",
+        params={"part": "statistics,snippet,contentDetails", "id": ",".join(video_ids), "key": YOUTUBE_API_KEY}
+    ).json()
+    videos = []
+    for item in stats_r.get("items", []):
+        videos.append({
+            "title": item["snippet"]["title"],
+            "views": int(item["statistics"].get("viewCount", 0)),
+            "likes": int(item["statistics"].get("likeCount", 0)),
+            "comments": int(item["statistics"].get("commentCount", 0)),
+            "id": item["id"],
+            "published": item["snippet"]["publishedAt"][:10]
+        })
+    return sorted(videos, key=lambda x: x["views"], reverse=True)
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         await update.message.reply_text("⛔ Доступ закрыт.")
@@ -59,6 +115,52 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ Думаю...")
     history = load_history()
     history.append({"role": "user", "content": user_text})
+    history = trim_history(history)
+    memory = load_memory()
+    system_with_memory = SYSTEM_PROMPT
+    if memory:
+        system_with_memory += f"\n\n== ДОЛГОСРОЧНАЯ ПАМЯТЬ ==\n{memory}"
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=2000,
+        system=system_with_memory,
+        messages=history
+    )
+    reply = response.content[0].text
+    history.append({"role": "assistant", "content": reply})
+    save_history(history)
+    if len(reply) > 4000:
+        parts = [reply[i:i+4000] for i in range(0, len(reply), 4000)]
+        for part in parts:
+            await update.message.reply_text(part)
+    else:
+        await update.message.reply_text(reply)
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    if not OPENAI_KEY:
+        await update.message.reply_text("❌ OPENAI_KEY не настроен.")
+        return
+    await update.message.reply_text("🎤 Транскрибирую голосовое...")
+    voice = update.message.voice
+    file = await context.bot.get_file(voice.file_id)
+    with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
+        await file.download_to_drive(tmp.name)
+        tmp_path = tmp.name
+    with open(tmp_path, "rb") as audio_file:
+        headers = {"Authorization": f"Bearer {OPENAI_KEY}"}
+        files = {"file": ("voice.ogg", audio_file, "audio/ogg")}
+        data = {"model": "whisper-1", "language": "ru"}
+        r = requests.post("https://api.openai.com/v1/audio/transcriptions", headers=headers, files=files, data=data)
+    os.unlink(tmp_path)
+    if r.status_code != 200:
+        await update.message.reply_text("❌ Ошибка транскрипции.")
+        return
+    text = r.json().get("text", "")
+    await update.message.reply_text(f"🎤 Ты сказал: {text}\n\n⏳ Думаю...")
+    history = load_history()
+    history.append({"role": "user", "content": text})
     history = trim_history(history)
     memory = load_memory()
     system_with_memory = SYSTEM_PROMPT
@@ -100,8 +202,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/weekly — 📊 еженедельный отчёт\n"
         "/viral — 🚨 проверить вирусные видео\n"
         "/transcript ссылка — 📝 транскрипция видео\n"
+        "/analyze ссылка — 🔬 анализ видео конкурента\n"
+        "/report @канал — 📋 полный разбор канала\n"
         "/remember текст — 🧠 запомнить навсегда\n"
-        "/memory — 💾 показать память"
+        "/memory — 💾 показать память\n\n"
+        "🎤 Голосовые сообщения — просто отправь голосовое!"
     )
 
 async def clear_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -159,47 +264,128 @@ async def transcript_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not context.args:
         await update.message.reply_text("Укажи ссылку.\nПример: /transcript https://youtube.com/watch?v=xxxxx")
         return
-    url = context.args[0]
-    video_id = None
-    if "v=" in url:
-        video_id = url.split("v=")[1].split("&")[0]
-    elif "youtu.be/" in url:
-        video_id = url.split("youtu.be/")[1].split("?")[0]
+    video_id = extract_video_id(context.args[0])
     if not video_id:
-        await update.message.reply_text("Не могу извлечь ID видео. Проверь ссылку.")
+        await update.message.reply_text("Не могу извлечь ID видео.")
         return
     await update.message.reply_text("⏳ Получаю транскрипцию...")
+    transcript = get_transcript(video_id)
+    if not transcript:
+        await update.message.reply_text("❌ Транскрипция недоступна.")
+        return
+    await update.message.reply_text(f"📝 Транскрипция:\n\n{transcript[:3500]}")
+
+async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    if not context.args:
+        await update.message.reply_text("Укажи ссылку.\nПример: /analyze https://youtube.com/watch?v=xxxxx")
+        return
+    video_id = extract_video_id(context.args[0])
+    if not video_id:
+        await update.message.reply_text("Не могу извлечь ID видео.")
+        return
+    await update.message.reply_text("⏳ Анализирую видео...")
     transcript = get_transcript(video_id)
     if not transcript:
         await update.message.reply_text("❌ Транскрипция недоступна для этого видео.")
         return
     prompt = f"""
-Это транскрипция YouTube видео.
+Это транскрипция YouTube видео конкурента.
 
 ТРАНСКРИПЦИЯ:
 {transcript}
 
-Сделай полный анализ:
-1. HOOK — что именно зацепило в первые 3-5 секунд
-2. СТРУКТУРА — breakdown по частям
-3. ВИРУСНЫЕ ТРИГГЕРЫ — что держит зрителя
-4. ТЕМП И ПАУЗЫ — где ускорение, где замедление
-5. КАК АДАПТИРОВАТЬ для 3D анимации в стиле Zach D Films
-6. ГОТОВЫЙ СКРИПТ-НАБРОСОК для похожего видео
+Сделай ПОЛНЫЙ анализ как YouTube стратег:
+
+1. HOOK (первые 3-5 сек) — что именно зацепило
+2. СТРУКТУРА — breakdown по частям с таймингом
+3. ВИРУСНЫЕ ТРИГГЕРЫ — что держит зрителя до конца
+4. ТЕМП — где ускорение, где замедление и почему
+5. ЭМОЦИОНАЛЬНЫЙ ARC — как меняется напряжение
+6. СЛАБЫЕ МЕСТА — что можно было сделать лучше
+7. КАК АДАПТИРОВАТЬ для 3D анимации Anna Odyssey
+8. ГОТОВЫЙ СКРИПТ-НАБРОСОК адаптации (с SSML тегами для ElevenLabs)
+9. 3 ЗАГОЛОВКА для адаптированного видео
 """
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=2000,
+        max_tokens=2500,
         messages=[{"role": "user", "content": prompt}]
     )
-    result = f"📝 <b>ТРАНСКРИПЦИЯ:</b>\n{transcript[:1000]}...\n\n"
-    result += f"🧠 <b>АНАЛИЗ:</b>\n{response.content[0].text}"
+    result = f"🔬 <b>АНАЛИЗ ВИДЕО:</b>\n\n{response.content[0].text}"
     if len(result) > 4000:
         parts = [result[i:i+4000] for i in range(0, len(result), 4000)]
         for part in parts:
             await update.message.reply_text(part, parse_mode="HTML")
     else:
         await update.message.reply_text(result, parse_mode="HTML")
+
+async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    if not context.args:
+        await update.message.reply_text("Укажи канал.\nПример: /report zackdfilms")
+        return
+    handle = context.args[0].replace("@", "")
+    await update.message.reply_text(f"⏳ Анализирую канал @{handle}...")
+    result = get_channel_full_report(handle)
+    if not result or result[0] is None:
+        await update.message.reply_text("❌ Канал не найден.")
+        return
+    stats, snippet, channel_id = result
+    subs = int(stats.get("subscriberCount", 0))
+    total_views = int(stats.get("viewCount", 0))
+    total_videos = int(stats.get("videoCount", 0))
+    avg_views_per_video = total_views // total_videos if total_videos > 0 else 0
+    top_videos = get_top_videos_channel(channel_id)
+    avg_recent = sum(v["views"] for v in top_videos) / len(top_videos) if top_videos else 0
+    outliers = [v for v in top_videos if v["views"] > avg_recent * 3]
+    report = f"📋 <b>ОТЧЁТ: @{handle}</b>\n\n"
+    report += f"👥 Подписчики: {subs:,}\n"
+    report += f"👁 Всего просмотров: {total_views:,}\n"
+    report += f"🎬 Всего видео: {total_videos}\n"
+    report += f"⌀ Просмотров/видео (всего): {avg_views_per_video:,}\n"
+    report += f"⌀ Просмотров/видео (30 дней): {avg_recent:,.0f}\n\n"
+    if top_videos:
+        report += f"🏆 <b>Топ видео за 30 дней:</b>\n"
+        for i, v in enumerate(top_videos[:5], 1):
+            outlier_tag = " 🔥 OUTLIER" if v in outliers else ""
+            report += f"{i}. {v['title']}{outlier_tag}\n"
+            report += f"   👁 {v['views']:,} | ❤️ {v['likes']:,} | 💬 {v['comments']:,}\n"
+            report += f"   📅 {v['published']} | https://youtube.com/watch?v={v['id']}\n\n"
+    prompt = f"""
+Ты YouTube стратег. Вот данные по каналу @{handle}:
+
+Подписчики: {subs:,}
+Всего просмотров: {total_views:,}
+Видео за 30 дней: {len(top_videos)}
+Средние просмотры за 30 дней: {avg_recent:,.0f}
+Outliers: {len(outliers)}
+
+Топ видео:
+{chr(10).join([f"- {v['title']}: {v['views']:,} просмотров" for v in top_videos[:5]])}
+
+Сделай стратегический анализ:
+1. НИША И ФОРМАТ — что именно делает этот канал
+2. ЧАСТОТА ПОСТИНГА — оценка по данным
+3. ЧТО РАБОТАЕТ — паттерны успешных видео
+4. ЧТО НЕ РАБОТАЕТ — слабые места
+5. OUTLIER АНАЛИЗ — почему вирусные видео взорвались
+6. ЧТО ВЗЯТЬ для Anna Odyssey — конкретные идеи
+"""
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=1500,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    report += f"🧠 <b>СТРАТЕГИЧЕСКИЙ АНАЛИЗ:</b>\n\n{response.content[0].text}"
+    if len(report) > 4000:
+        parts = [report[i:i+4000] for i in range(0, len(report), 4000)]
+        for part in parts:
+            await update.message.reply_text(part, parse_mode="HTML")
+    else:
+        await update.message.reply_text(report, parse_mode="HTML")
 
 async def scheduled_digest():
     run_daily_digest()
@@ -228,8 +414,11 @@ def main():
     app.add_handler(CommandHandler("weekly", manual_weekly))
     app.add_handler(CommandHandler("viral", manual_viral))
     app.add_handler(CommandHandler("transcript", transcript_command))
+    app.add_handler(CommandHandler("analyze", analyze_command))
+    app.add_handler(CommandHandler("report", report_command))
     app.add_handler(CommandHandler("remember", remember))
     app.add_handler(CommandHandler("memory", show_memory))
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     print("✅ Бот запущен...")
     app.run_polling()

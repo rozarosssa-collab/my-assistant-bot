@@ -241,17 +241,29 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "✅ Бот запущен.\n\n"
         "🎯 Режимы:\n"
-        "💡 режим: идеи\n✍️ режим: скрипт\n🔍 режим: анализ\n"
-        "🌀 режим: бенд\n📊 режим: стратегия\n🔥 режим: критик\n👾 режим: reddit\n\n"
+        "💡 режим: идеи — генерация идей\n"
+        "✍️ режим: скрипт — написание скрипта\n"
+        "🔍 режим: анализ — анализ скрипта конкурента\n"
+        "🌀 режим: бенд — Niche Bending\n"
+        "📊 режим: стратегия — YouTube стратегия\n"
+        "🔥 режим: критик — жёсткая оценка идей\n"
+        "👾 режим: reddit — Reddit канал\n\n"
         "⚙️ Команды:\n"
-        "/digest /tracker /weekly /viral\n"
-        "/analyze /transcript /report\n"
-        "/remember /memory /clear\n"
+        "/clear — 🧹 очистить историю\n"
+        "/digest — 📰 аналитика конкурентов\n"
+        "/tracker — 📈 статистика твоих каналов\n"
+        "/weekly — 📊 еженедельный отчёт\n"
+        "/forecast — 🔮 прогноз на неделю\n"
+        "/plan — 📋 контент-план недели\n"
+        "/viral — 🚨 проверить вирусные видео\n"
+        "/transcript ссылка — 📝 транскрипция видео\n"
+        "/analyze ссылка — 🔬 анализ видео конкурента\n"
+        "/report @канал — 📋 полный разбор канала\n"
+        "/remember текст — 🧠 запомнить навсегда\n"
+        "/memory — 💾 показать память\n"
         "/guide — 📖 полное руководство\n\n"
-        "🎤 Голосовые сообщения поддерживаются\n"
-        "Напиши 'гайд' для полного руководства"
+        "🎤 Голосовые сообщения — просто отправь голосовое!"
     )
-
 async def guide_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return

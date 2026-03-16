@@ -29,6 +29,54 @@ client = Anthropic(api_key=ANTHROPIC_KEY)
 with open("system_prompt.txt", "r", encoding="utf-8") as f:
     SYSTEM_PROMPT = f.read()
 
+GUIDE_TEXT = """🤖 ANNA BOT — РУКОВОДСТВО
+
+🎯 РЕЖИМЫ РАБОТЫ
+Пиши в чат без команд, просто текст:
+
+💡 режим: идеи — генерирует 10 идей для Shorts с описанием визуала, hook и причиной почему зайдёт
+
+✍️ режим: скрипт — пишет полный скрипт с SSML тегами для ElevenLabs v3, готовый к озвучке
+
+🔍 режим: анализ — присылаешь скрипт конкурента текстом, бот разбирает структуру и пишет твою адаптацию
+
+🌀 режим: бенд — запускает методологию Niche Bending, генерирует 3 нишевых бенда с заголовками
+
+📊 режим: стратегия — думает как YouTube стратег, даёт план роста и контент-стратегию
+
+🔥 режим: критик — жёстко и честно оценивает твои идеи или скрипты без смягчений
+
+👾 режим: reddit — переключается на Midnight Archive, пишет и анализирует Reddit-формат
+
+⚙️ АВТОМАТИЧЕСКИЕ КОМАНДЫ
+
+📰 /digest — аналитика всех конкурентов за 24 часа по всем нишам. Outliers, просмотры, идеи. Автоматически каждый день в 9:00
+
+📈 /tracker — полная статистика твоих трёх каналов: подписчики, просмотры, топ видео, оценка заработка. Автоматически в 9:05
+
+📊 /weekly — еженедельный стратегический отчёт по всем конкурентам с outlier анализом, трендами и 5 идеями для каждого канала. Автоматически каждое воскресенье в 10:00
+
+🚨 /viral — проверяет конкурентов на вирусные видео прямо сейчас. Если находит — присылает транскрипцию и анализ. Автоматически каждые 3 часа
+
+🔧 РУЧНЫЕ КОМАНДЫ
+
+🔬 /analyze ссылка — полный разбор видео конкурента: hook, структура, триггеры + адаптация для Anna Odyssey со скриптом и тремя заголовками
+
+📝 /transcript ссылка — чистая транскрипция любого YouTube видео
+
+📋 /report username — полный разбор канала: подписчики, просмотры, топ видео, outliers, стратегический анализ
+
+🧠 /remember текст — запомнить навсегда. Пример: /remember я перешёл в нишу космоса
+
+💾 /memory — показать всё что бот запомнил
+
+🧹 /clear — очистить историю диалога (память сохраняется)
+
+📖 /guide или напиши "гайд" — показать это руководство
+
+🎤 ГОЛОС
+Просто отправь голосовое — бот транскрибирует и ответит. Работай на ходу."""
+
 def load_history():
     if os.path.exists(HISTORY_FILE):
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
@@ -64,10 +112,10 @@ def extract_video_id(url):
 
 def get_channel_full_report(handle):
     url = "https://www.googleapis.com/youtube/v3/channels"
-    params = {"part": "statistics,snippet,brandingSettings", "forHandle": handle, "key": YOUTUBE_API_KEY}
+    params = {"part": "statistics,snippet", "forHandle": handle, "key": YOUTUBE_API_KEY}
     r = requests.get(url, params=params).json()
     if not r.get("items"):
-        return None, None
+        return None, None, None
     item = r["items"][0]
     return item["statistics"], item["snippet"], item["id"]
 
@@ -93,7 +141,7 @@ def get_top_videos_channel(channel_id, max_results=10):
         return []
     stats_r = requests.get(
         "https://www.googleapis.com/youtube/v3/videos",
-        params={"part": "statistics,snippet,contentDetails", "id": ",".join(video_ids), "key": YOUTUBE_API_KEY}
+        params={"part": "statistics,snippet", "id": ",".join(video_ids), "key": YOUTUBE_API_KEY}
     ).json()
     videos = []
     for item in stats_r.get("items", []):
@@ -112,6 +160,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ Доступ закрыт.")
         return
     user_text = update.message.text
+
+    if user_text.lower().strip() in ["гайд", "guide", "руководство", "помощь", "help"]:
+        await update.message.reply_text(GUIDE_TEXT)
+        return
+
     await update.message.reply_text("⏳ Думаю...")
     history = load_history()
     history.append({"role": "user", "content": user_text})
@@ -140,7 +193,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     if not OPENAI_KEY:
-        await update.message.reply_text("❌ OPENAI_KEY не настроен.")
+        await update.message.reply_text("❌ OPENAI_KEY не настроен в Railway Variables.")
         return
     await update.message.reply_text("🎤 Транскрибирую голосовое...")
     voice = update.message.voice
@@ -188,26 +241,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "✅ Бот запущен.\n\n"
         "🎯 Режимы:\n"
-        "💡 режим: идеи — генерация идей\n"
-        "✍️ режим: скрипт — написание скрипта\n"
-        "🔍 режим: анализ — анализ скрипта конкурента\n"
-        "🌀 режим: бенд — Niche Bending\n"
-        "📊 режим: стратегия — YouTube стратегия\n"
-        "🔥 режим: критик — жёсткая оценка идей\n"
-        "👾 режим: reddit — Reddit канал\n\n"
+        "💡 режим: идеи\n✍️ режим: скрипт\n🔍 режим: анализ\n"
+        "🌀 режим: бенд\n📊 режим: стратегия\n🔥 режим: критик\n👾 режим: reddit\n\n"
         "⚙️ Команды:\n"
-        "/clear — 🧹 очистить историю\n"
-        "/digest — 📰 аналитика конкурентов\n"
-        "/tracker — 📈 статистика твоих каналов\n"
-        "/weekly — 📊 еженедельный отчёт\n"
-        "/viral — 🚨 проверить вирусные видео\n"
-        "/transcript ссылка — 📝 транскрипция видео\n"
-        "/analyze ссылка — 🔬 анализ видео конкурента\n"
-        "/report @канал — 📋 полный разбор канала\n"
-        "/remember текст — 🧠 запомнить навсегда\n"
-        "/memory — 💾 показать память\n\n"
-        "🎤 Голосовые сообщения — просто отправь голосовое!"
+        "/digest /tracker /weekly /viral\n"
+        "/analyze /transcript /report\n"
+        "/remember /memory /clear\n"
+        "/guide — 📖 полное руководство\n\n"
+        "🎤 Голосовые сообщения поддерживаются\n"
+        "Напиши 'гайд' для полного руководства"
     )
+
+async def guide_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    await update.message.reply_text(GUIDE_TEXT)
 
 async def clear_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
@@ -220,7 +268,7 @@ async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     text = " ".join(context.args)
     if not text:
-        await update.message.reply_text("Напиши что запомнить.\nПример: /remember я перешёл в нишу космоса")
+        await update.message.reply_text("Пример: /remember я перешёл в нишу космоса")
         return
     save_memory(text)
     await update.message.reply_text(f"✅ Запомнил: {text}")
@@ -262,7 +310,7 @@ async def transcript_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not is_authorized(update):
         return
     if not context.args:
-        await update.message.reply_text("Укажи ссылку.\nПример: /transcript https://youtube.com/watch?v=xxxxx")
+        await update.message.reply_text("Пример: /transcript https://youtube.com/watch?v=xxxxx")
         return
     video_id = extract_video_id(context.args[0])
     if not video_id:
@@ -279,7 +327,7 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     if not context.args:
-        await update.message.reply_text("Укажи ссылку.\nПример: /analyze https://youtube.com/watch?v=xxxxx")
+        await update.message.reply_text("Пример: /analyze https://youtube.com/watch?v=xxxxx")
         return
     video_id = extract_video_id(context.args[0])
     if not video_id:
@@ -290,24 +338,20 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not transcript:
         await update.message.reply_text("❌ Транскрипция недоступна для этого видео.")
         return
-    prompt = f"""
-Это транскрипция YouTube видео конкурента.
+    prompt = f"""Транскрипция YouTube видео конкурента:
 
-ТРАНСКРИПЦИЯ:
 {transcript}
 
-Сделай ПОЛНЫЙ анализ как YouTube стратег:
-
-1. HOOK (первые 3-5 сек) — что именно зацепило
-2. СТРУКТУРА — breakdown по частям с таймингом
-3. ВИРУСНЫЕ ТРИГГЕРЫ — что держит зрителя до конца
-4. ТЕМП — где ускорение, где замедление и почему
-5. ЭМОЦИОНАЛЬНЫЙ ARC — как меняется напряжение
-6. СЛАБЫЕ МЕСТА — что можно было сделать лучше
-7. КАК АДАПТИРОВАТЬ для 3D анимации Anna Odyssey
-8. ГОТОВЫЙ СКРИПТ-НАБРОСОК адаптации (с SSML тегами для ElevenLabs)
-9. 3 ЗАГОЛОВКА для адаптированного видео
-"""
+Полный анализ:
+1. HOOK (первые 3-5 сек)
+2. СТРУКТУРА с таймингом
+3. ВИРУСНЫЕ ТРИГГЕРЫ
+4. ТЕМП — где ускорение, где замедление
+5. ЭМОЦИОНАЛЬНЫЙ ARC
+6. СЛАБЫЕ МЕСТА
+7. АДАПТАЦИЯ для Anna Odyssey (3D Zach D Films стиль)
+8. ГОТОВЫЙ СКРИПТ-НАБРОСОК с SSML тегами
+9. 3 ЗАГОЛОВКА для адаптации"""
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=2500,
@@ -325,15 +369,14 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     if not context.args:
-        await update.message.reply_text("Укажи канал.\nПример: /report zackdfilms")
+        await update.message.reply_text("Пример: /report zackdfilms")
         return
     handle = context.args[0].replace("@", "")
     await update.message.reply_text(f"⏳ Анализирую канал @{handle}...")
-    result = get_channel_full_report(handle)
-    if not result or result[0] is None:
+    stats, snippet, channel_id = get_channel_full_report(handle)
+    if not stats:
         await update.message.reply_text("❌ Канал не найден.")
         return
-    stats, snippet, channel_id = result
     subs = int(stats.get("subscriberCount", 0))
     total_views = int(stats.get("viewCount", 0))
     total_videos = int(stats.get("videoCount", 0))
@@ -354,32 +397,24 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             report += f"{i}. {v['title']}{outlier_tag}\n"
             report += f"   👁 {v['views']:,} | ❤️ {v['likes']:,} | 💬 {v['comments']:,}\n"
             report += f"   📅 {v['published']} | https://youtube.com/watch?v={v['id']}\n\n"
-    prompt = f"""
-Ты YouTube стратег. Вот данные по каналу @{handle}:
+    prompt = f"""YouTube стратег. Данные канала @{handle}:
+Подписчики: {subs:,} | Просмотры: {total_views:,} | Видео за 30 дней: {len(top_videos)}
+Средние просмотры: {avg_recent:,.0f} | Outliers: {len(outliers)}
+Топ: {chr(10).join([f"- {v['title']}: {v['views']:,}" for v in top_videos[:5]])}
 
-Подписчики: {subs:,}
-Всего просмотров: {total_views:,}
-Видео за 30 дней: {len(top_videos)}
-Средние просмотры за 30 дней: {avg_recent:,.0f}
-Outliers: {len(outliers)}
-
-Топ видео:
-{chr(10).join([f"- {v['title']}: {v['views']:,} просмотров" for v in top_videos[:5]])}
-
-Сделай стратегический анализ:
-1. НИША И ФОРМАТ — что именно делает этот канал
-2. ЧАСТОТА ПОСТИНГА — оценка по данным
-3. ЧТО РАБОТАЕТ — паттерны успешных видео
-4. ЧТО НЕ РАБОТАЕТ — слабые места
-5. OUTLIER АНАЛИЗ — почему вирусные видео взорвались
-6. ЧТО ВЗЯТЬ для Anna Odyssey — конкретные идеи
-"""
+Анализ:
+1. НИША И ФОРМАТ
+2. ЧАСТОТА ПОСТИНГА
+3. ЧТО РАБОТАЕТ
+4. ЧТО НЕ РАБОТАЕТ
+5. OUTLIER АНАЛИЗ
+6. ЧТО ВЗЯТЬ для Anna Odyssey"""
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=1500,
         messages=[{"role": "user", "content": prompt}]
     )
-    report += f"🧠 <b>СТРАТЕГИЧЕСКИЙ АНАЛИЗ:</b>\n\n{response.content[0].text}"
+    report += f"🧠 <b>АНАЛИЗ:</b>\n\n{response.content[0].text}"
     if len(report) > 4000:
         parts = [report[i:i+4000] for i in range(0, len(report), 4000)]
         for part in parts:
@@ -408,6 +443,7 @@ async def post_init(application):
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("guide", guide_command))
     app.add_handler(CommandHandler("clear", clear_history))
     app.add_handler(CommandHandler("digest", manual_digest))
     app.add_handler(CommandHandler("tracker", manual_tracker))

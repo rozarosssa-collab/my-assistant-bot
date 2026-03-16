@@ -12,6 +12,7 @@ import pytz
 from analytics import run_daily_digest
 from tracker import run_tracker
 from weekly_report import run_weekly_report
+from weekly_forecast import run_weekly_forecast, run_monday_plan
 from viral_alert import run_viral_check, get_transcript
 
 load_dotenv()
@@ -32,50 +33,38 @@ with open("system_prompt.txt", "r", encoding="utf-8") as f:
 GUIDE_TEXT = """🤖 ANNA BOT — РУКОВОДСТВО
 
 🎯 РЕЖИМЫ РАБОТЫ
-Пиши в чат без команд, просто текст:
+Пиши в чат без команд:
 
-💡 режим: идеи — генерирует 10 идей для Shorts с описанием визуала, hook и причиной почему зайдёт
-
-✍️ режим: скрипт — пишет полный скрипт с SSML тегами для ElevenLabs v3, готовый к озвучке
-
-🔍 режим: анализ — присылаешь скрипт конкурента текстом, бот разбирает структуру и пишет твою адаптацию
-
-🌀 режим: бенд — запускает методологию Niche Bending, генерирует 3 нишевых бенда с заголовками
-
-📊 режим: стратегия — думает как YouTube стратег, даёт план роста и контент-стратегию
-
-🔥 режим: критик — жёстко и честно оценивает твои идеи или скрипты без смягчений
-
-👾 режим: reddit — переключается на Midnight Archive, пишет и анализирует Reddit-формат
+💡 режим: идеи — генерирует идеи для Shorts с hook и визуалом
+✍️ режим: скрипт — полный скрипт с SSML тегами для ElevenLabs
+🔍 режим: анализ — разбор скрипта конкурента + адаптация
+🌀 режим: бенд — Niche Bending, 3 нишевых бенда
+📊 режим: стратегия — YouTube стратегия и план роста
+🔥 режим: критик — жёсткая оценка без смягчений
+👾 режим: reddit — работа с Midnight Archive
 
 ⚙️ АВТОМАТИЧЕСКИЕ КОМАНДЫ
 
-📰 /digest — аналитика всех конкурентов за 24 часа по всем нишам. Outliers, просмотры, идеи. Автоматически каждый день в 9:00
-
-📈 /tracker — полная статистика твоих трёх каналов: подписчики, просмотры, топ видео, оценка заработка. Автоматически в 9:05
-
-📊 /weekly — еженедельный стратегический отчёт по всем конкурентам с outlier анализом, трендами и 5 идеями для каждого канала. Автоматически каждое воскресенье в 10:00
-
-🚨 /viral — проверяет конкурентов на вирусные видео прямо сейчас. Если находит — присылает транскрипцию и анализ. Автоматически каждые 3 часа
+📰 /digest — аналитика конкурентов за 24ч (авто в 9:00)
+📈 /tracker — статистика твоих каналов (авто в 9:05)
+🚨 /viral — вирусные видео (авто каждые 3 часа)
+📊 /weekly — еженедельный отчёт (авто вс 10:00)
+🔮 /forecast — прогноз на неделю (авто пт 18:00)
+📋 /plan — контент-план (авто пн 9:10)
 
 🔧 РУЧНЫЕ КОМАНДЫ
 
-🔬 /analyze ссылка — полный разбор видео конкурента: hook, структура, триггеры + адаптация для Anna Odyssey со скриптом и тремя заголовками
+🔬 /analyze ссылка — полный разбор видео конкурента
+📝 /transcript ссылка — транскрипция YouTube видео
+📋 /report username — полный разбор канала
+🧠 /remember текст — запомнить навсегда
+💾 /memory — показать всё что запомнено
+🧹 /clear — очистить историю диалога
 
-📝 /transcript ссылка — чистая транскрипция любого YouTube видео
-
-📋 /report username — полный разбор канала: подписчики, просмотры, топ видео, outliers, стратегический анализ
-
-🧠 /remember текст — запомнить навсегда. Пример: /remember я перешёл в нишу космоса
-
-💾 /memory — показать всё что бот запомнил
-
-🧹 /clear — очистить историю диалога (память сохраняется)
-
-📖 /guide или напиши "гайд" — показать это руководство
+🌐 ВЕБ-ВЕРСИЯ: https://anna-bot-web.vercel.app
 
 🎤 ГОЛОС
-Просто отправь голосовое — бот транскрибирует и ответит. Работай на ходу."""
+Отправь голосовое — бот транскрибирует и ответит."""
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -124,13 +113,9 @@ def get_top_videos_channel(channel_id, max_results=10):
     published_after = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
     url = "https://www.googleapis.com/youtube/v3/search"
     params = {
-        "part": "snippet",
-        "channelId": channel_id,
-        "publishedAfter": published_after,
-        "order": "viewCount",
-        "maxResults": max_results,
-        "type": "video",
-        "key": YOUTUBE_API_KEY
+        "part": "snippet", "channelId": channel_id,
+        "publishedAfter": published_after, "order": "viewCount",
+        "maxResults": max_results, "type": "video", "key": YOUTUBE_API_KEY
     }
     r = requests.get(url, params=params).json()
     items = r.get("items", [])
@@ -160,14 +145,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ Доступ закрыт.")
         return
     user_text = update.message.text
-
     if user_text.lower().strip() in ["гайд", "guide", "руководство", "помощь", "help"]:
         await update.message.reply_text(GUIDE_TEXT)
         return
     if user_text.lower().strip() in ["начнем", "начнём", "старт", "привет", "го"]:
         await start(update, context)
         return
-
     await update.message.reply_text("⏳ Думаю...")
     history = load_history()
     history.append({"role": "user", "content": user_text})
@@ -198,7 +181,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not OPENAI_KEY:
         await update.message.reply_text("❌ OPENAI_KEY не настроен в Railway Variables.")
         return
-    await update.message.reply_text("🎤 Транскрибирую голосовое...")
+    await update.message.reply_text("🎤 Транскрибирую...")
     voice = update.message.voice
     file = await context.bot.get_file(voice.file_id)
     with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
@@ -241,7 +224,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
-await update.message.reply_text(
+    await update.message.reply_text(
         "✅ Бот запущен.\n\n"
         "🎯 Режимы:\n"
         "💡 режим: идеи — генерация идей\n"
@@ -268,6 +251,7 @@ await update.message.reply_text(
         "🎤 Голосовые сообщения — просто отправь голосовое!\n\n"
         "🌐 Веб-версия: https://anna-bot-web.vercel.app"
     )
+
 async def guide_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
@@ -322,6 +306,18 @@ async def manual_viral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ Проверяю вирусные видео...")
     run_viral_check()
 
+async def manual_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    await update.message.reply_text("⏳ Генерирую прогноз на следующую неделю...")
+    run_weekly_forecast()
+
+async def manual_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    await update.message.reply_text("⏳ Составляю контент-план...")
+    run_monday_plan()
+
 async def transcript_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
@@ -362,24 +358,24 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 1. HOOK (первые 3-5 сек)
 2. СТРУКТУРА с таймингом
 3. ВИРУСНЫЕ ТРИГГЕРЫ
-4. ТЕМП — где ускорение, где замедление
+4. ТЕМП
 5. ЭМОЦИОНАЛЬНЫЙ ARC
 6. СЛАБЫЕ МЕСТА
-7. АДАПТАЦИЯ для Anna Odyssey (3D Zach D Films стиль)
-8. ГОТОВЫЙ СКРИПТ-НАБРОСОК с SSML тегами
-9. 3 ЗАГОЛОВКА для адаптации"""
+7. АДАПТАЦИЯ для Anna Odyssey
+8. СКРИПТ-НАБРОСОК с SSML тегами
+9. 3 ЗАГОЛОВКА"""
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=2500,
         messages=[{"role": "user", "content": prompt}]
     )
-    result = f"🔬 <b>АНАЛИЗ ВИДЕО:</b>\n\n{response.content[0].text}"
+    result = f"🔬 АНАЛИЗ ВИДЕО:\n\n{response.content[0].text}"
     if len(result) > 4000:
         parts = [result[i:i+4000] for i in range(0, len(result), 4000)]
         for part in parts:
-            await update.message.reply_text(part, parse_mode="HTML")
+            await update.message.reply_text(part)
     else:
-        await update.message.reply_text(result, parse_mode="HTML")
+        await update.message.reply_text(result)
 
 async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
@@ -388,7 +384,7 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Пример: /report zackdfilms")
         return
     handle = context.args[0].replace("@", "")
-    await update.message.reply_text(f"⏳ Анализирую канал @{handle}...")
+    await update.message.reply_text(f"⏳ Анализирую @{handle}...")
     stats, snippet, channel_id = get_channel_full_report(handle)
     if not stats:
         await update.message.reply_text("❌ Канал не найден.")
@@ -396,47 +392,42 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     subs = int(stats.get("subscriberCount", 0))
     total_views = int(stats.get("viewCount", 0))
     total_videos = int(stats.get("videoCount", 0))
-    avg_views_per_video = total_views // total_videos if total_videos > 0 else 0
+    avg_per_video = total_views // total_videos if total_videos > 0 else 0
     top_videos = get_top_videos_channel(channel_id)
     avg_recent = sum(v["views"] for v in top_videos) / len(top_videos) if top_videos else 0
     outliers = [v for v in top_videos if v["views"] > avg_recent * 3]
-    report = f"📋 <b>ОТЧЁТ: @{handle}</b>\n\n"
+    report = f"📋 ОТЧЁТ: @{handle}\n\n"
     report += f"👥 Подписчики: {subs:,}\n"
     report += f"👁 Всего просмотров: {total_views:,}\n"
     report += f"🎬 Всего видео: {total_videos}\n"
-    report += f"⌀ Просмотров/видео (всего): {avg_views_per_video:,}\n"
-    report += f"⌀ Просмотров/видео (30 дней): {avg_recent:,.0f}\n\n"
+    report += f"⌀ Просмотров/видео: {avg_per_video:,}\n"
+    report += f"⌀ За 30 дней: {avg_recent:,.0f}/видео\n"
+    report += f"🔥 Outliers: {len(outliers)}\n\n"
     if top_videos:
-        report += f"🏆 <b>Топ видео за 30 дней:</b>\n"
+        report += f"🏆 Топ видео за 30 дней:\n"
         for i, v in enumerate(top_videos[:5], 1):
-            outlier_tag = " 🔥 OUTLIER" if v in outliers else ""
-            report += f"{i}. {v['title']}{outlier_tag}\n"
+            tag = " 🔥" if v in outliers else ""
+            report += f"{i}. {v['title']}{tag}\n"
             report += f"   👁 {v['views']:,} | ❤️ {v['likes']:,} | 💬 {v['comments']:,}\n"
-            report += f"   📅 {v['published']} | https://youtube.com/watch?v={v['id']}\n\n"
+            report += f"   📅 {v['published']}\n\n"
     prompt = f"""YouTube стратег. Данные канала @{handle}:
 Подписчики: {subs:,} | Просмотры: {total_views:,} | Видео за 30 дней: {len(top_videos)}
-Средние просмотры: {avg_recent:,.0f} | Outliers: {len(outliers)}
+Средние: {avg_recent:,.0f} | Outliers: {len(outliers)}
 Топ: {chr(10).join([f"- {v['title']}: {v['views']:,}" for v in top_videos[:5]])}
 
-Анализ:
-1. НИША И ФОРМАТ
-2. ЧАСТОТА ПОСТИНГА
-3. ЧТО РАБОТАЕТ
-4. ЧТО НЕ РАБОТАЕТ
-5. OUTLIER АНАЛИЗ
-6. ЧТО ВЗЯТЬ для Anna Odyssey"""
+Анализ: ниша, частота, что работает, что нет, outlier разбор, 3 идеи для Anna Odyssey."""
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=1500,
         messages=[{"role": "user", "content": prompt}]
     )
-    report += f"🧠 <b>АНАЛИЗ:</b>\n\n{response.content[0].text}"
+    report += f"🧠 АНАЛИЗ:\n\n{response.content[0].text}"
     if len(report) > 4000:
         parts = [report[i:i+4000] for i in range(0, len(report), 4000)]
         for part in parts:
-            await update.message.reply_text(part, parse_mode="HTML")
+            await update.message.reply_text(part)
     else:
-        await update.message.reply_text(report, parse_mode="HTML")
+        await update.message.reply_text(report)
 
 async def scheduled_digest():
     run_daily_digest()
@@ -452,7 +443,9 @@ async def post_init(application):
     kyiv_tz = pytz.timezone("Europe/Kiev")
     scheduler.add_job(scheduled_digest, CronTrigger(hour=9, minute=0, timezone=kyiv_tz))
     scheduler.add_job(scheduled_tracker, CronTrigger(hour=9, minute=5, timezone=kyiv_tz))
+    scheduler.add_job(run_monday_plan, CronTrigger(day_of_week="mon", hour=9, minute=10, timezone=kyiv_tz))
     scheduler.add_job(run_weekly_report, CronTrigger(day_of_week="sun", hour=10, minute=0, timezone=kyiv_tz))
+    scheduler.add_job(run_weekly_forecast, CronTrigger(day_of_week="fri", hour=18, minute=0, timezone=kyiv_tz))
     scheduler.add_job(scheduled_viral, CronTrigger(hour="*/3", timezone=kyiv_tz))
     scheduler.start()
 
@@ -465,6 +458,8 @@ def main():
     app.add_handler(CommandHandler("tracker", manual_tracker))
     app.add_handler(CommandHandler("weekly", manual_weekly))
     app.add_handler(CommandHandler("viral", manual_viral))
+    app.add_handler(CommandHandler("forecast", manual_forecast))
+    app.add_handler(CommandHandler("plan", manual_plan))
     app.add_handler(CommandHandler("transcript", transcript_command))
     app.add_handler(CommandHandler("analyze", analyze_command))
     app.add_handler(CommandHandler("report", report_command))

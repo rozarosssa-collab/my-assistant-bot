@@ -164,6 +164,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_text.lower().strip() in ["гайд", "guide", "руководство", "помощь", "help"]:
         await update.message.reply_text(GUIDE_TEXT)
         return
+    if user_text.lower().strip() in ["начнем", "начнём", "старт", "привет", "го"]:
+        await start(update, context)
+        return
 
     await update.message.reply_text("⏳ Думаю...")
     history = load_history()

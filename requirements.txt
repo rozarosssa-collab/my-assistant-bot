@@ -1,3 +1,6 @@
 python-telegram-bot==22.7
 anthropic
 python-dotenv
+requests
+apscheduler
+pytz

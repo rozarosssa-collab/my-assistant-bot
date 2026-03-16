@@ -4,6 +4,10 @@ from dotenv import load_dotenv
 from anthropic import Anthropic
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+import pytz
+from analytics import run_daily_digest
 
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -62,7 +66,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     await update.message.reply_text(
-        "✅ Бот запущен.\n\nРежимы:\nрежим: идеи\nрежим: скрипт\nрежим: анализ\nрежим: бенд\nрежим: стратегия\nрежим: критик\nрежим: reddit\n\n/clear — очистить память"
+        "✅ Бот запущен.\n\nРежимы:\nрежим: идеи\nрежим: скрипт\nрежим: анализ\nрежим: бенд\nрежим: стратегия\nрежим: критик\nрежим: reddit\n\n/clear — очистить память\n/digest — запустить аналитику сейчас"
     )
 
 async def clear_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -71,12 +75,28 @@ async def clear_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_history([])
     await update.message.reply_text("🧹 Память очищена.")
 
+async def manual_digest(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    await update.message.reply_text("⏳ Запускаю аналитику...")
+    run_daily_digest()
+
+async def scheduled_digest():
+    run_daily_digest()
+
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("clear", clear_history))
+    app.add_handler(CommandHandler("digest", manual_digest))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("✅ Бот запущен...")
+
+    scheduler = AsyncIOScheduler()
+    kyiv_tz = pytz.timezone("Europe/Kiev")
+    scheduler.add_job(scheduled_digest, CronTrigger(hour=9, minute=0, timezone=kyiv_tz))
+    scheduler.start()
+
+    print("✅ Бот запущен с аналитикой в 9:00 по Киеву...")
     app.run_polling()
 
 if __name__ == "__main__":

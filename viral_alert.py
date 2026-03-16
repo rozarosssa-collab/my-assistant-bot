@@ -12,7 +12,7 @@ MY_TELEGRAM_ID = os.getenv("MY_TELEGRAM_ID")
 client = Anthropic(api_key=ANTHROPIC_KEY)
 
 ALERT_FILE = "viral_seen.json"
-VIRAL_MULTIPLIER = 5
+VIRAL_MULTIPLIER = 3
 
 ALL_CHANNELS = [
     "theartofwarrr", "ZeckFelms", "Shade_Scrolls", "AstryStudios",
@@ -48,7 +48,7 @@ def get_recent_videos(channel_id, hours=6):
         "channelId": channel_id,
         "publishedAfter": published_after,
         "order": "date",
-        "maxResults": 5,
+        "maxResults": 10,
         "type": "video",
         "key": YOUTUBE_API_KEY
     }
@@ -127,46 +127,56 @@ def run_viral_check():
             comments = int(item["statistics"].get("commentCount", 0))
             title = item["snippet"]["title"]
 
-            if avg_views > 0 and views > avg_views * VIRAL_MULTIPLIER:
-                multiplier = views / avg_views
+            is_outlier = avg_views > 0 and views > avg_views * VIRAL_MULTIPLIER
+            is_big = avg_views == 0 and views > 50000
 
-                transcript = get_transcript(vid_id)
+            if is_outlier or is_big:
+                multiplier = views / avg_views if avg_views > 0 else 0
 
-                alert = f"🚨 <b>ВИРУСНОЕ ВИДЕО ОБНАРУЖЕНО!</b>\n\n"
+                alert = f"🚨 <b>OUTLIER ОБНАРУЖЕН!</b>\n\n"
                 alert += f"📺 Канал: @{handle}\n"
                 alert += f"🎬 {title}\n"
                 alert += f"👁 {views:,} просмотров\n"
                 alert += f"❤️ {likes:,} | 💬 {comments:,}\n"
-                alert += f"📈 В {multiplier:.1f}x больше среднего канала\n"
+                if multiplier > 0:
+                    alert += f"📈 В {multiplier:.1f}x больше среднего канала\n"
+                else:
+                    alert += f"📈 Новый канал — {views:,} просмотров за 6 часов\n"
                 alert += f"🔗 https://youtube.com/watch?v={vid_id}\n\n"
+
+                transcript = get_transcript(vid_id)
 
                 if transcript:
                     prompt = f"""
-Это транскрипция вирусного видео с YouTube канала @{handle}.
-Видео набрало {views:,} просмотров — в {multiplier:.1f}x больше обычного.
+Вирусное видео канала @{handle} набрало {views:,} просмотров за несколько часов.
 
 ТРАНСКРИПЦИЯ:
 {transcript}
 
-Сделай быстрый анализ:
-1. HOOK (первые 3-5 секунд) — что именно зацепило зрителя
-2. СТРУКТУРА — как построено видео
-3. ВИРУСНЫЙ ТРИГГЕР — почему это взорвалось
-4. КАК АДАПТИРОВАТЬ для 3D анимации в стиле Zach D Films
-5. ГОТОВЫЙ ЗАГОЛОВОК для похожего видео на Anna Odyssey
+Быстрый анализ:
+1. HOOK — что зацепило в первые 3-5 сек
+2. ВИРУСНЫЙ ТРИГГЕР — почему это взорвалось
+3. СТРУКТУРА — как построено видео
+4. КАК АДАПТИРОВАТЬ для 3D анимации Anna Odyssey
+5. ГОТОВЫЙ ЗАГОЛОВОК для адаптации
 """
                     response = client.messages.create(
                         model="claude-sonnet-4-20250514",
                         max_tokens=1000,
                         messages=[{"role": "user", "content": prompt}]
                     )
-                    alert += f"📝 <b>ТРАНСКРИПЦИЯ (фрагмент):</b>\n{transcript[:500]}...\n\n"
-                    alert += f"🧠 <b>АНАЛИЗ:</b>\n{response.content[0].text}"
+                    alert += f"📝 <b>Транскрипция (фрагмент):</b>\n{transcript[:400]}...\n\n"
+                    alert += f"🧠 <b>Анализ:</b>\n{response.content[0].text}"
                 else:
-                    alert += "📝 Транскрипция недоступна для этого видео."
+                    alert += "📝 Транскрипция недоступна — субтитры отключены на видео.\n"
+                    alert += "💡 Используй /analyze для ручного анализа."
 
                 send_telegram(alert)
-                seen[vid_id] = {"handle": handle, "views": views, "date": datetime.now().isoformat()}
+                seen[vid_id] = {
+                    "handle": handle,
+                    "views": views,
+                    "date": datetime.now().isoformat()
+                }
 
     save_seen(seen)
 

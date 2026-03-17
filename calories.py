@@ -16,7 +16,6 @@ from tracker import run_tracker
 from weekly_report import run_weekly_report
 from weekly_forecast import run_weekly_forecast, run_monday_plan
 from viral_alert import run_viral_check, get_transcript
-from calories import add_food, get_today_summary, reset_calories, run_daily_reset, DAILY_LIMIT
 
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")

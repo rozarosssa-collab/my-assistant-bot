@@ -15,6 +15,7 @@ from tracker import run_tracker
 from weekly_report import run_weekly_report
 from weekly_forecast import run_weekly_forecast, run_monday_plan
 from viral_alert import run_viral_check, get_transcript
+from calories import add_food, get_today_summary, reset_calories, run_daily_reset, DAILY_LIMIT
 
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -52,38 +53,33 @@ GUIDE_TEXT = """🤖 ANNA BOT — РУКОВОДСТВО
 
 ⚙️ АВТОМАТИЧЕСКИЕ КОМАНДЫ
 
-📰 /digest — аналитика всех конкурентов за 24 часа по всем нишам. Outliers, просмотры, идеи. Автоматически каждый день в 9:00
-
-📈 /tracker — полная статистика твоих трёх каналов: подписчики, просмотры, топ видео, оценка заработка. Автоматически в 9:05
-
-📊 /weekly — еженедельный стратегический отчёт по всем конкурентам с outlier анализом, трендами и 5 идеями для каждого канала. Автоматически каждое воскресенье в 10:00
-
-🚨 /viral — проверяет конкурентов на вирусные видео прямо сейчас. Если находит — присылает транскрипцию и анализ. Автоматически каждые 3 часа
-
-🔮 /forecast — прогноз на следующую неделю. Автоматически пятница 18:00
-
-📋 /plan — контент-план на неделю. Автоматически понедельник 9:10
+📰 /digest — аналитика всех конкурентов за 24 часа
+📈 /tracker — статистика твоих каналов
+📊 /weekly — еженедельный отчёт (авто вс 10:00)
+🚨 /viral — вирусные видео (авто каждые 3 часа)
+🔮 /forecast — прогноз на неделю (авто пт 18:00)
+📋 /plan — контент-план (авто пн 9:10)
 
 🔧 РУЧНЫЕ КОМАНДЫ
 
-🔬 /analyze ссылка — полный разбор видео конкурента: hook, структура, триггеры + адаптация для Anna Odyssey со скриптом и тремя заголовками
+🔬 /analyze ссылка — полный разбор видео конкурента
+📝 /transcript ссылка — транскрипция YouTube видео
+📋 /report username — полный разбор канала
+🧠 /remember текст — запомнить навсегда
+💾 /memory — показать память
+🧹 /clear — очистить историю
 
-📝 /transcript ссылка — чистая транскрипция любого YouTube видео
+🥗 КАЛЬКУЛЯТОР КАЛОРИЙ
 
-📋 /report username — полный разбор канала: подписчики, просмотры, топ видео, outliers, стратегический анализ
+/cal продукт — добавить еду и получить КБЖУ
+/today — сводка за сегодня
+/caloreset — сбросить счётчик вручную
 
-🧠 /remember текст — запомнить навсегда. Пример: /remember я перешёл в нишу космоса
-
-💾 /memory — показать всё что бот запомнил
-
-🧹 /clear — очистить историю диалога (память сохраняется)
-
-📖 /guide или напиши "гайд" — показать это руководство
+Лимит: 1800 ккал/день. Сбрасывается автоматически в 00:00.
 
 🌐 Веб-версия: https://anna-bot-web.vercel.app
 
-🎤 ГОЛОС
-Просто отправь голосовое — бот транскрибирует и ответит. Работай на ходу."""
+🎤 ГОЛОС — просто отправь голосовое"""
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -246,29 +242,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "✅ Бот запущен.\n\n"
         "🎯 Режимы:\n"
-        "💡 режим: идеи — генерация идей\n"
-        "✍️ режим: скрипт — написание скрипта\n"
-        "🔍 режим: анализ — анализ скрипта конкурента\n"
-        "🌀 режим: бенд — Niche Bending\n"
-        "📊 режим: стратегия — YouTube стратегия\n"
-        "🔥 режим: критик — жёсткая оценка идей\n"
-        "👾 режим: reddit — Reddit канал\n\n"
-        "⚙️ Команды:\n"
-        "/clear — 🧹 очистить историю\n"
-        "/digest — 📰 аналитика конкурентов\n"
-        "/tracker — 📈 статистика твоих каналов\n"
-        "/weekly — 📊 еженедельный отчёт\n"
-        "/forecast — 🔮 прогноз на неделю\n"
-        "/plan — 📋 контент-план недели\n"
-        "/viral — 🚨 проверить вирусные видео\n"
-        "/transcript ссылка — 📝 транскрипция видео\n"
-        "/analyze ссылка — 🔬 анализ видео конкурента\n"
-        "/report @канал — 📋 полный разбор канала\n"
-        "/remember текст — 🧠 запомнить навсегда\n"
-        "/memory — 💾 показать память\n"
-        "/guide — 📖 полное руководство\n\n"
-        "🎤 Голосовые сообщения — просто отправь голосовое!\n\n"
-        "🌐 Веб-версия: https://anna-bot-web.vercel.app"
+        "💡 режим: идеи | ✍️ режим: скрипт\n"
+        "🔍 режим: анализ | 🌀 режим: бенд\n"
+        "📊 режим: стратегия | 🔥 режим: критик | 👾 режим: reddit\n\n"
+        "⚙️ YouTube команды:\n"
+        "/digest /tracker /weekly /viral /forecast /plan\n"
+        "/analyze /transcript /report\n\n"
+        "🥗 Калории:\n"
+        "/cal [продукт] — добавить еду\n"
+        "/today — сводка за сегодня\n"
+        "/caloreset — сбросить счётчик\n\n"
+        "/remember /memory /clear /guide\n\n"
+        "🎤 Голосовые поддерживаются\n"
+        "🌐 https://anna-bot-web.vercel.app"
     )
 
 async def guide_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -300,6 +286,65 @@ async def show_memory(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"💾 Моя память:\n{memory}")
     else:
         await update.message.reply_text("Память пустая.")
+
+async def cal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    if not context.args:
+        await update.message.reply_text("Напиши что съел.\nПример: /cal овсянка 200г")
+        return
+    food_text = " ".join(context.args)
+    await update.message.reply_text("⏳ Считаю КБЖУ...")
+    loop = asyncio.get_event_loop()
+    food, total, over_limit = await loop.run_in_executor(None, add_food, food_text)
+    if not food:
+        await update.message.reply_text("❌ Не удалось определить КБЖУ. Попробуй написать точнее.")
+        return
+    remaining = DAILY_LIMIT - total["calories"]
+    msg = f"🍽 {food['name']} ({food['amount']})\n"
+    msg += f"━━━━━━━━━━━━━━\n"
+    msg += f"🔥 Калории: {food['calories']} ккал\n"
+    msg += f"💪 Белки: {food['protein']} г\n"
+    msg += f"🧈 Жиры: {food['fat']} г\n"
+    msg += f"🍞 Углеводы: {food['carbs']} г\n\n"
+    msg += f"📊 За сегодня: {total['calories']} / {DAILY_LIMIT} ккал\n"
+    if over_limit:
+        over = total["calories"] - DAILY_LIMIT
+        msg += f"\n⚠️ ЛИМИТ ПРЕВЫШЕН на {over} ккал!"
+    else:
+        msg += f"✅ Осталось: {remaining} ккал"
+    await update.message.reply_text(msg)
+
+async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    data = get_today_summary()
+    if not data["items"]:
+        await update.message.reply_text("🥗 Сегодня ещё ничего не записано.\n\nДобавь еду: /cal продукт")
+        return
+    total = data["total"]
+    remaining = DAILY_LIMIT - total["calories"]
+    msg = f"📊 СВОДКА ЗА СЕГОДНЯ\n"
+    msg += f"━━━━━━━━━━━━━━\n\n"
+    for i, item in enumerate(data["items"], 1):
+        msg += f"{i}. {item['name']} ({item['amount']}) — {item['calories']} ккал\n"
+    msg += f"\n━━━━━━━━━━━━━━\n"
+    msg += f"🔥 Итого: {total['calories']} / {DAILY_LIMIT} ккал\n"
+    msg += f"💪 Белки: {total['protein']} г\n"
+    msg += f"🧈 Жиры: {total['fat']} г\n"
+    msg += f"🍞 Углеводы: {total['carbs']} г\n\n"
+    if total["calories"] > DAILY_LIMIT:
+        over = total["calories"] - DAILY_LIMIT
+        msg += f"⚠️ ЛИМИТ ПРЕВЫШЕН на {over} ккал!"
+    else:
+        msg += f"✅ Осталось: {remaining} ккал"
+    await update.message.reply_text(msg)
+
+async def caloreset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    reset_calories()
+    await update.message.reply_text("🔄 Счётчик калорий сброшен.\n\nЦель: 1800 ккал 🎯")
 
 async def manual_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
@@ -466,6 +511,10 @@ async def scheduled_viral():
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, run_viral_check)
 
+async def scheduled_calorie_reset():
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, run_daily_reset)
+
 async def post_init(application):
     scheduler = AsyncIOScheduler()
     kyiv_tz = pytz.timezone("Europe/Kiev")
@@ -475,6 +524,7 @@ async def post_init(application):
     scheduler.add_job(run_weekly_report, CronTrigger(day_of_week="sun", hour=10, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
     scheduler.add_job(run_weekly_forecast, CronTrigger(day_of_week="fri", hour=18, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
     scheduler.add_job(scheduled_viral, CronTrigger(hour="*/3", timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(scheduled_calorie_reset, CronTrigger(hour=0, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
     scheduler.start()
 
 def main():
@@ -493,6 +543,9 @@ def main():
     app.add_handler(CommandHandler("report", report_command))
     app.add_handler(CommandHandler("remember", remember))
     app.add_handler(CommandHandler("memory", show_memory))
+    app.add_handler(CommandHandler("cal", cal_command))
+    app.add_handler(CommandHandler("today", today_command))
+    app.add_handler(CommandHandler("caloreset", caloreset_command))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     print("✅ Бот запущен...")

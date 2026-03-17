@@ -459,12 +459,12 @@ async def scheduled_viral():
 async def post_init(application):
     scheduler = AsyncIOScheduler()
     kyiv_tz = pytz.timezone("Europe/Kiev")
-    scheduler.add_job(scheduled_digest, CronTrigger(hour=9, minute=0, timezone=kyiv_tz))
-    scheduler.add_job(scheduled_tracker, CronTrigger(hour=9, minute=5, timezone=kyiv_tz))
-    scheduler.add_job(run_monday_plan, CronTrigger(day_of_week="mon", hour=9, minute=10, timezone=kyiv_tz))
-    scheduler.add_job(run_weekly_report, CronTrigger(day_of_week="sun", hour=10, minute=0, timezone=kyiv_tz))
-    scheduler.add_job(run_weekly_forecast, CronTrigger(day_of_week="fri", hour=18, minute=0, timezone=kyiv_tz))
-    scheduler.add_job(scheduled_viral, CronTrigger(hour="*/3", timezone=kyiv_tz))
+    scheduler.add_job(scheduled_digest, CronTrigger(hour=9, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(scheduled_tracker, CronTrigger(hour=9, minute=5, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(run_monday_plan, CronTrigger(day_of_week="mon", hour=9, minute=10, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(run_weekly_report, CronTrigger(day_of_week="sun", hour=10, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(run_weekly_forecast, CronTrigger(day_of_week="fri", hour=18, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(scheduled_viral, CronTrigger(hour="*/3", timezone=kyiv_tz), misfire_grace_time=300)
     scheduler.start()
 
 def main():

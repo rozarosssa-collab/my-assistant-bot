@@ -16,6 +16,7 @@ from weekly_report import run_weekly_report
 from weekly_forecast import run_weekly_forecast, run_monday_plan
 from viral_alert import run_viral_check, get_transcript
 from calories import add_food, get_today_summary, reset_calories, run_daily_reset, DAILY_LIMIT
+from redis_stats import update_tg_stats, update_whisper_stats
 
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -182,6 +183,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply = response.content[0].text
     history.append({"role": "assistant", "content": reply})
     save_history(history)
+    try:
+        update_tg_stats(response.usage.input_tokens, response.usage.output_tokens)
+    except Exception:
+        pass
     if len(reply) > 4000:
         parts = [reply[i:i+4000] for i in range(0, len(reply), 4000)]
         for part in parts:
@@ -197,6 +202,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text("🎤 Транскрибирую...")
     voice = update.message.voice
+    duration = voice.duration or 10
     file = await context.bot.get_file(voice.file_id)
     with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
         await file.download_to_drive(tmp.name)
@@ -211,6 +217,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Ошибка транскрипции.")
         return
     text = r.json().get("text", "")
+    try:
+        update_whisper_stats(duration)
+    except Exception:
+        pass
     await update.message.reply_text(f"🎤 Ты сказал: {text}\n\n⏳ Думаю...")
     history = load_history()
     history.append({"role": "user", "content": text})
@@ -228,6 +238,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply = response.content[0].text
     history.append({"role": "assistant", "content": reply})
     save_history(history)
+    try:
+        update_tg_stats(response.usage.input_tokens, response.usage.output_tokens)
+    except Exception:
+        pass
     if len(reply) > 4000:
         parts = [reply[i:i+4000] for i in range(0, len(reply), 4000)]
         for part in parts:
@@ -439,6 +453,10 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         max_tokens=2500,
         messages=[{"role": "user", "content": prompt}]
     )
+    try:
+        update_tg_stats(response.usage.input_tokens, response.usage.output_tokens)
+    except Exception:
+        pass
     result = f"🔬 АНАЛИЗ ВИДЕО:\n\n{response.content[0].text}"
     if len(result) > 4000:
         parts = [result[i:i+4000] for i in range(0, len(result), 4000)]
@@ -491,6 +509,10 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         max_tokens=1500,
         messages=[{"role": "user", "content": prompt}]
     )
+    try:
+        update_tg_stats(response.usage.input_tokens, response.usage.output_tokens)
+    except Exception:
+        pass
     report += f"🧠 АНАЛИЗ:\n\n{response.content[0].text}"
     if len(report) > 4000:
         parts = [report[i:i+4000] for i in range(0, len(report), 4000)]

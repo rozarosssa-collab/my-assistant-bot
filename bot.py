@@ -26,7 +26,7 @@ OPENAI_KEY = os.getenv("OPENAI_KEY")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 HISTORY_FILE = "history.json"
 MEMORY_FILE = "memory.txt"
-MAX_HISTORY = 30
+MAX_HISTORY = 10
 
 client = Anthropic(api_key=ANTHROPIC_KEY)
 

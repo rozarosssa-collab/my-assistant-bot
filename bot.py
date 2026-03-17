@@ -1,6 +1,7 @@
 import os
 import json
 import tempfile
+import asyncio
 import requests
 from dotenv import load_dotenv
 from anthropic import Anthropic
@@ -304,37 +305,43 @@ async def manual_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     await update.message.reply_text("⏳ Генерирую еженедельный отчёт...")
-    run_weekly_report()
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, run_weekly_report)
 
 async def manual_tracker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     await update.message.reply_text("⏳ Собираю статистику твоих каналов...")
-    run_tracker()
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, run_tracker)
 
 async def manual_digest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     await update.message.reply_text("⏳ Запускаю аналитику конкурентов...")
-    run_daily_digest()
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, run_daily_digest)
 
 async def manual_viral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     await update.message.reply_text("⏳ Проверяю вирусные видео...")
-    run_viral_check()
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, run_viral_check)
 
 async def manual_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     await update.message.reply_text("⏳ Генерирую прогноз на следующую неделю...")
-    run_weekly_forecast()
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, run_weekly_forecast)
 
 async def manual_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     await update.message.reply_text("⏳ Составляю контент-план...")
-    run_monday_plan()
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, run_monday_plan)
 
 async def transcript_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
@@ -448,13 +455,16 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(report)
 
 async def scheduled_digest():
-    run_daily_digest()
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, run_daily_digest)
 
 async def scheduled_tracker():
-    run_tracker()
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, run_tracker)
 
 async def scheduled_viral():
-    run_viral_check()
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, run_viral_check)
 
 async def post_init(application):
     scheduler = AsyncIOScheduler()

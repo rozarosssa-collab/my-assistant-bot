@@ -155,6 +155,26 @@ def get_top_videos_channel(channel_id, max_results=10):
         })
     return sorted(videos, key=lambda x: x["views"], reverse=True)
 
+def make_system(memory=""):
+    system_text = SYSTEM_PROMPT
+    if memory:
+        system_text += f"\n\n== ДОЛГОСРОЧНАЯ ПАМЯТЬ ==\n{memory}"
+    return [{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}]
+
+def claude_call(system, messages, max_tokens=2000):
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=max_tokens,
+        system=system,
+        messages=messages,
+        extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"}
+    )
+    try:
+        update_tg_stats(response.usage.input_tokens, response.usage.output_tokens)
+    except Exception:
+        pass
+    return response.content[0].text
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         await update.message.reply_text("⛔ Доступ закрыт.")
@@ -170,26 +190,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     history = load_history()
     history.append({"role": "user", "content": user_text})
     history = trim_history(history)
-    memory = load_memory()
-    system_with_memory = SYSTEM_PROMPT
-    if memory:
-        system_with_memory += f"\n\n== ДОЛГОСРОЧНАЯ ПАМЯТЬ ==\n{memory}"
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2000,
-        system=system_with_memory,
-        messages=history
-    )
-    reply = response.content[0].text
+    reply = claude_call(make_system(load_memory()), history)
     history.append({"role": "assistant", "content": reply})
     save_history(history)
-    try:
-        update_tg_stats(response.usage.input_tokens, response.usage.output_tokens)
-    except Exception:
-        pass
     if len(reply) > 4000:
-        parts = [reply[i:i+4000] for i in range(0, len(reply), 4000)]
-        for part in parts:
+        for part in [reply[i:i+4000] for i in range(0, len(reply), 4000)]:
             await update.message.reply_text(part)
     else:
         await update.message.reply_text(reply)
@@ -198,7 +203,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     if not OPENAI_KEY:
-        await update.message.reply_text("❌ OPENAI_KEY не настроен в Railway Variables.")
+        await update.message.reply_text("❌ OPENAI_KEY не настроен.")
         return
     await update.message.reply_text("🎤 Транскрибирую...")
     voice = update.message.voice
@@ -225,26 +230,11 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     history = load_history()
     history.append({"role": "user", "content": text})
     history = trim_history(history)
-    memory = load_memory()
-    system_with_memory = SYSTEM_PROMPT
-    if memory:
-        system_with_memory += f"\n\n== ДОЛГОСРОЧНАЯ ПАМЯТЬ ==\n{memory}"
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2000,
-        system=system_with_memory,
-        messages=history
-    )
-    reply = response.content[0].text
+    reply = claude_call(make_system(load_memory()), history)
     history.append({"role": "assistant", "content": reply})
     save_history(history)
-    try:
-        update_tg_stats(response.usage.input_tokens, response.usage.output_tokens)
-    except Exception:
-        pass
     if len(reply) > 4000:
-        parts = [reply[i:i+4000] for i in range(0, len(reply), 4000)]
-        for part in parts:
+        for part in [reply[i:i+4000] for i in range(0, len(reply), 4000)]:
             await update.message.reply_text(part)
     else:
         await update.message.reply_text(reply)
@@ -304,29 +294,26 @@ async def cal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     if not context.args:
-        await update.message.reply_text("Напиши что съел.\nПример: /cal овсянка 200г и банан")
+        await update.message.reply_text("Пример: /cal овсянка 200г и банан")
         return
     food_text = " ".join(context.args)
     await update.message.reply_text("⏳ Считаю КБЖУ...")
     loop = asyncio.get_event_loop()
     items, total, over_limit = await loop.run_in_executor(None, add_food, food_text)
     if not items:
-        await update.message.reply_text("❌ Не удалось определить КБЖУ. Попробуй написать точнее.")
+        await update.message.reply_text("❌ Не удалось определить КБЖУ.")
         return
     msg = "🍽 ДОБАВЛЕНО:\n━━━━━━━━━━━━━━\n"
     for item in items:
         msg += f"\n{item['name']} ({item['amount']})\n"
         msg += f"  🔥 {item['calories']} ккал | 💪 Б:{item['protein']}г | 🧈 Ж:{item['fat']}г | 🍞 У:{item['carbs']}г\n"
-    msg += f"\n━━━━━━━━━━━━━━\n"
-    msg += f"📊 ИТОГО ЗА СЕГОДНЯ\n"
+    msg += f"\n━━━━━━━━━━━━━━\n📊 ИТОГО ЗА СЕГОДНЯ\n"
     msg += f"🔥 {total['calories']} / {DAILY_LIMIT} ккал\n"
     msg += f"💪 Б:{total['protein']}г | 🧈 Ж:{total['fat']}г | 🍞 У:{total['carbs']}г\n\n"
     if over_limit:
-        over = total["calories"] - DAILY_LIMIT
-        msg += f"⚠️ ЛИМИТ ПРЕВЫШЕН на {over} ккал!"
+        msg += f"⚠️ ЛИМИТ ПРЕВЫШЕН на {total['calories'] - DAILY_LIMIT} ккал!"
     else:
-        remaining = DAILY_LIMIT - total["calories"]
-        msg += f"✅ Осталось: {remaining} ккал"
+        msg += f"✅ Осталось: {DAILY_LIMIT - total['calories']} ккал"
     await update.message.reply_text(msg)
 
 async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -334,73 +321,62 @@ async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     data = get_today_summary()
     if not data["items"]:
-        await update.message.reply_text("🥗 Сегодня ещё ничего не записано.\n\nДобавь еду: /cal продукт")
+        await update.message.reply_text("🥗 Сегодня ничего не записано.\n\nДобавь: /cal продукт")
         return
     total = data["total"]
-    remaining = DAILY_LIMIT - total["calories"]
     msg = f"📊 СВОДКА ЗА СЕГОДНЯ\n━━━━━━━━━━━━━━\n\n"
     for i, item in enumerate(data["items"], 1):
         msg += f"{i}. {item['name']} ({item['amount']})\n"
         msg += f"   🔥 {item['calories']} ккал | 💪 Б:{item['protein']}г | 🧈 Ж:{item['fat']}г | 🍞 У:{item['carbs']}г\n\n"
-    msg += f"━━━━━━━━━━━━━━\n"
-    msg += f"🔥 Итого: {total['calories']} / {DAILY_LIMIT} ккал\n"
-    msg += f"💪 Белки: {total['protein']} г\n"
-    msg += f"🧈 Жиры: {total['fat']} г\n"
-    msg += f"🍞 Углеводы: {total['carbs']} г\n\n"
+    msg += f"━━━━━━━━━━━━━━\n🔥 Итого: {total['calories']} / {DAILY_LIMIT} ккал\n"
+    msg += f"💪 Белки: {total['protein']} г | 🧈 Жиры: {total['fat']} г | 🍞 Углеводы: {total['carbs']} г\n\n"
     if total["calories"] > DAILY_LIMIT:
-        over = total["calories"] - DAILY_LIMIT
-        msg += f"⚠️ ЛИМИТ ПРЕВЫШЕН на {over} ккал!"
+        msg += f"⚠️ ЛИМИТ ПРЕВЫШЕН на {total['calories'] - DAILY_LIMIT} ккал!"
     else:
-        msg += f"✅ Осталось: {remaining} ккал"
+        msg += f"✅ Осталось: {DAILY_LIMIT - total['calories']} ккал"
     await update.message.reply_text(msg)
 
 async def caloreset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     reset_calories()
-    await update.message.reply_text("🔄 Счётчик калорий сброшен.\n\nЦель: 1800 ккал 🎯")
+    await update.message.reply_text("🔄 Счётчик сброшен. Цель: 1800 ккал 🎯")
 
 async def manual_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     await update.message.reply_text("⏳ Генерирую еженедельный отчёт...")
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, run_weekly_report)
+    await asyncio.get_event_loop().run_in_executor(None, run_weekly_report)
 
 async def manual_tracker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
-    await update.message.reply_text("⏳ Собираю статистику твоих каналов...")
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, run_tracker)
+    await update.message.reply_text("⏳ Собираю статистику...")
+    await asyncio.get_event_loop().run_in_executor(None, run_tracker)
 
 async def manual_digest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     await update.message.reply_text("⏳ Запускаю аналитику конкурентов...")
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, run_daily_digest)
+    await asyncio.get_event_loop().run_in_executor(None, run_daily_digest)
 
 async def manual_viral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     await update.message.reply_text("⏳ Проверяю вирусные видео...")
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, run_viral_check)
+    await asyncio.get_event_loop().run_in_executor(None, run_viral_check)
 
 async def manual_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
-    await update.message.reply_text("⏳ Генерирую прогноз на следующую неделю...")
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, run_weekly_forecast)
+    await update.message.reply_text("⏳ Генерирую прогноз...")
+    await asyncio.get_event_loop().run_in_executor(None, run_weekly_forecast)
 
 async def manual_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     await update.message.reply_text("⏳ Составляю контент-план...")
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, run_monday_plan)
+    await asyncio.get_event_loop().run_in_executor(None, run_monday_plan)
 
 async def transcript_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
@@ -432,10 +408,9 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ Анализирую видео...")
     transcript = get_transcript(video_id)
     if not transcript:
-        await update.message.reply_text("❌ Транскрипция недоступна для этого видео.")
+        await update.message.reply_text("❌ Транскрипция недоступна.")
         return
     prompt = f"""Транскрипция YouTube видео конкурента:
-
 {transcript}
 
 Полный анализ:
@@ -448,19 +423,10 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 7. АДАПТАЦИЯ для Anna Odyssey
 8. СКРИПТ-НАБРОСОК с SSML тегами
 9. 3 ЗАГОЛОВКА"""
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2500,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    try:
-        update_tg_stats(response.usage.input_tokens, response.usage.output_tokens)
-    except Exception:
-        pass
-    result = f"🔬 АНАЛИЗ ВИДЕО:\n\n{response.content[0].text}"
+    reply = claude_call([{"type": "text", "text": "Ты YouTube стратег."}], [{"role": "user", "content": prompt}], max_tokens=2500)
+    result = f"🔬 АНАЛИЗ ВИДЕО:\n\n{reply}"
     if len(result) > 4000:
-        parts = [result[i:i+4000] for i in range(0, len(result), 4000)]
-        for part in parts:
+        for part in [result[i:i+4000] for i in range(0, len(result), 4000)]:
             await update.message.reply_text(part)
     else:
         await update.message.reply_text(result)
@@ -485,67 +451,37 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     avg_recent = sum(v["views"] for v in top_videos) / len(top_videos) if top_videos else 0
     outliers = [v for v in top_videos if v["views"] > avg_recent * 3]
     report = f"📋 ОТЧЁТ: @{handle}\n\n"
-    report += f"👥 Подписчики: {subs:,}\n"
-    report += f"👁 Всего просмотров: {total_views:,}\n"
-    report += f"🎬 Всего видео: {total_videos}\n"
-    report += f"⌀ Просмотров/видео: {avg_per_video:,}\n"
-    report += f"⌀ За 30 дней: {avg_recent:,.0f}/видео\n"
+    report += f"👥 {subs:,} подп. | 👁 {total_views:,} просмотров | 🎬 {total_videos} видео\n"
+    report += f"⌀ {avg_per_video:,}/видео всего | ⌀ {avg_recent:,.0f}/видео за 30 дней\n"
     report += f"🔥 Outliers: {len(outliers)}\n\n"
     if top_videos:
-        report += f"🏆 Топ видео за 30 дней:\n"
+        report += "🏆 Топ за 30 дней:\n"
         for i, v in enumerate(top_videos[:5], 1):
             tag = " 🔥" if v in outliers else ""
-            report += f"{i}. {v['title']}{tag}\n"
-            report += f"   👁 {v['views']:,} | ❤️ {v['likes']:,} | 💬 {v['comments']:,}\n"
-            report += f"   📅 {v['published']}\n\n"
-    prompt = f"""YouTube стратег. Данные канала @{handle}:
-Подписчики: {subs:,} | Просмотры: {total_views:,} | Видео за 30 дней: {len(top_videos)}
-Средние: {avg_recent:,.0f} | Outliers: {len(outliers)}
+            report += f"{i}. {v['title']}{tag}\n   👁 {v['views']:,} | 📅 {v['published']}\n\n"
+    prompt = f"""Данные канала @{handle}: подп. {subs:,}, просмотры {total_views:,}, видео за 30 дней: {len(top_videos)}, средние: {avg_recent:,.0f}, outliers: {len(outliers)}
 Топ: {chr(10).join([f"- {v['title']}: {v['views']:,}" for v in top_videos[:5]])}
-
 Анализ: ниша, частота, что работает, что нет, outlier разбор, 3 идеи для Anna Odyssey."""
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=1500,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    try:
-        update_tg_stats(response.usage.input_tokens, response.usage.output_tokens)
-    except Exception:
-        pass
-    report += f"🧠 АНАЛИЗ:\n\n{response.content[0].text}"
+    reply = claude_call([{"type": "text", "text": "Ты YouTube стратег."}], [{"role": "user", "content": prompt}], max_tokens=1500)
+    report += f"🧠 АНАЛИЗ:\n\n{reply}"
     if len(report) > 4000:
-        parts = [report[i:i+4000] for i in range(0, len(report), 4000)]
-        for part in parts:
+        for part in [report[i:i+4000] for i in range(0, len(report), 4000)]:
             await update.message.reply_text(part)
     else:
         await update.message.reply_text(report)
 
-async def scheduled_digest():
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, run_daily_digest)
-
-async def scheduled_tracker():
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, run_tracker)
-
-async def scheduled_viral():
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, run_viral_check)
-
 async def scheduled_calorie_reset():
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, run_daily_reset)
+    await asyncio.get_event_loop().run_in_executor(None, run_daily_reset)
 
 async def post_init(application):
     scheduler = AsyncIOScheduler()
     kyiv_tz = pytz.timezone("Europe/Kiev")
-    scheduler.add_job(scheduled_digest, CronTrigger(hour=9, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
-    scheduler.add_job(scheduled_tracker, CronTrigger(hour=9, minute=5, timezone=kyiv_tz), misfire_grace_time=300)
-    scheduler.add_job(run_monday_plan, CronTrigger(day_of_week="mon", hour=9, minute=10, timezone=kyiv_tz), misfire_grace_time=300)
-    scheduler.add_job(run_weekly_report, CronTrigger(day_of_week="sun", hour=10, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
-    scheduler.add_job(run_weekly_forecast, CronTrigger(day_of_week="fri", hour=18, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
-    scheduler.add_job(scheduled_viral, CronTrigger(hour="*/3", timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(lambda: asyncio.get_event_loop().run_in_executor(None, run_daily_digest), CronTrigger(hour=9, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(lambda: asyncio.get_event_loop().run_in_executor(None, run_tracker), CronTrigger(hour=9, minute=5, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(lambda: asyncio.get_event_loop().run_in_executor(None, run_monday_plan), CronTrigger(day_of_week="mon", hour=9, minute=10, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(lambda: asyncio.get_event_loop().run_in_executor(None, run_weekly_report), CronTrigger(day_of_week="sun", hour=10, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(lambda: asyncio.get_event_loop().run_in_executor(None, run_weekly_forecast), CronTrigger(day_of_week="fri", hour=18, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(lambda: asyncio.get_event_loop().run_in_executor(None, run_viral_check), CronTrigger(hour="*/3", timezone=kyiv_tz), misfire_grace_time=300)
     scheduler.add_job(scheduled_calorie_reset, CronTrigger(hour=0, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
     scheduler.start()
 

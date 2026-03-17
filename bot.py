@@ -53,12 +53,12 @@ GUIDE_TEXT = """🤖 ANNA BOT — РУКОВОДСТВО
 
 ⚙️ АВТОМАТИЧЕСКИЕ КОМАНДЫ
 
-📰 /digest — аналитика всех конкурентов за 24 часа
-📈 /tracker — статистика твоих каналов
-📊 /weekly — еженедельный отчёт (авто вс 10:00)
-🚨 /viral — вирусные видео (авто каждые 3 часа)
-🔮 /forecast — прогноз на неделю (авто пт 18:00)
-📋 /plan — контент-план (авто пн 9:10)
+📰 /digest — аналитика всех конкурентов за 24 часа. Автоматически в 9:00
+📈 /tracker — статистика твоих каналов. Автоматически в 9:05
+📊 /weekly — еженедельный отчёт. Автоматически вс 10:00
+🚨 /viral — вирусные видео. Автоматически каждые 3 часа
+🔮 /forecast — прогноз на неделю. Автоматически пт 18:00
+📋 /plan — контент-план. Автоматически пн 9:10
 
 🔧 РУЧНЫЕ КОМАНДЫ
 
@@ -71,14 +71,13 @@ GUIDE_TEXT = """🤖 ANNA BOT — РУКОВОДСТВО
 
 🥗 КАЛЬКУЛЯТОР КАЛОРИЙ
 
-/cal продукт — добавить еду и получить КБЖУ
-/today — сводка за сегодня
+/cal продукт — добавить еду и получить КБЖУ каждого продукта + общее
+/today — полная сводка за сегодня
 /caloreset — сбросить счётчик вручную
-
 Лимит: 1800 ккал/день. Сбрасывается автоматически в 00:00.
 
+📖 /guide или напиши "гайд" — показать руководство
 🌐 Веб-версия: https://anna-bot-web.vercel.app
-
 🎤 ГОЛОС — просто отправь голосовое"""
 
 def load_history():
@@ -245,11 +244,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💡 режим: идеи | ✍️ режим: скрипт\n"
         "🔍 режим: анализ | 🌀 режим: бенд\n"
         "📊 режим: стратегия | 🔥 режим: критик | 👾 режим: reddit\n\n"
-        "⚙️ YouTube команды:\n"
+        "⚙️ YouTube:\n"
         "/digest /tracker /weekly /viral /forecast /plan\n"
         "/analyze /transcript /report\n\n"
         "🥗 Калории:\n"
-        "/cal [продукт] — добавить еду\n"
+        "/cal [еда] — добавить и получить КБЖУ\n"
         "/today — сводка за сегодня\n"
         "/caloreset — сбросить счётчик\n\n"
         "/remember /memory /clear /guide\n\n"
@@ -291,27 +290,28 @@ async def cal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     if not context.args:
-        await update.message.reply_text("Напиши что съел.\nПример: /cal овсянка 200г")
+        await update.message.reply_text("Напиши что съел.\nПример: /cal овсянка 200г и банан")
         return
     food_text = " ".join(context.args)
     await update.message.reply_text("⏳ Считаю КБЖУ...")
     loop = asyncio.get_event_loop()
-    food, total, over_limit = await loop.run_in_executor(None, add_food, food_text)
-    if not food:
+    items, total, over_limit = await loop.run_in_executor(None, add_food, food_text)
+    if not items:
         await update.message.reply_text("❌ Не удалось определить КБЖУ. Попробуй написать точнее.")
         return
-    remaining = DAILY_LIMIT - total["calories"]
-    msg = f"🍽 {food['name']} ({food['amount']})\n"
-    msg += f"━━━━━━━━━━━━━━\n"
-    msg += f"🔥 Калории: {food['calories']} ккал\n"
-    msg += f"💪 Белки: {food['protein']} г\n"
-    msg += f"🧈 Жиры: {food['fat']} г\n"
-    msg += f"🍞 Углеводы: {food['carbs']} г\n\n"
-    msg += f"📊 За сегодня: {total['calories']} / {DAILY_LIMIT} ккал\n"
+    msg = "🍽 ДОБАВЛЕНО:\n━━━━━━━━━━━━━━\n"
+    for item in items:
+        msg += f"\n{item['name']} ({item['amount']})\n"
+        msg += f"  🔥 {item['calories']} ккал | 💪 Б:{item['protein']}г | 🧈 Ж:{item['fat']}г | 🍞 У:{item['carbs']}г\n"
+    msg += f"\n━━━━━━━━━━━━━━\n"
+    msg += f"📊 ИТОГО ЗА СЕГОДНЯ\n"
+    msg += f"🔥 {total['calories']} / {DAILY_LIMIT} ккал\n"
+    msg += f"💪 Б:{total['protein']}г | 🧈 Ж:{total['fat']}г | 🍞 У:{total['carbs']}г\n\n"
     if over_limit:
         over = total["calories"] - DAILY_LIMIT
-        msg += f"\n⚠️ ЛИМИТ ПРЕВЫШЕН на {over} ккал!"
+        msg += f"⚠️ ЛИМИТ ПРЕВЫШЕН на {over} ккал!"
     else:
+        remaining = DAILY_LIMIT - total["calories"]
         msg += f"✅ Осталось: {remaining} ккал"
     await update.message.reply_text(msg)
 
@@ -324,11 +324,11 @@ async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     total = data["total"]
     remaining = DAILY_LIMIT - total["calories"]
-    msg = f"📊 СВОДКА ЗА СЕГОДНЯ\n"
-    msg += f"━━━━━━━━━━━━━━\n\n"
+    msg = f"📊 СВОДКА ЗА СЕГОДНЯ\n━━━━━━━━━━━━━━\n\n"
     for i, item in enumerate(data["items"], 1):
-        msg += f"{i}. {item['name']} ({item['amount']}) — {item['calories']} ккал\n"
-    msg += f"\n━━━━━━━━━━━━━━\n"
+        msg += f"{i}. {item['name']} ({item['amount']})\n"
+        msg += f"   🔥 {item['calories']} ккал | 💪 Б:{item['protein']}г | 🧈 Ж:{item['fat']}г | 🍞 У:{item['carbs']}г\n\n"
+    msg += f"━━━━━━━━━━━━━━\n"
     msg += f"🔥 Итого: {total['calories']} / {DAILY_LIMIT} ккал\n"
     msg += f"💪 Белки: {total['protein']} г\n"
     msg += f"🧈 Жиры: {total['fat']} г\n"

@@ -14,6 +14,8 @@ client = Anthropic(api_key=ANTHROPIC_KEY)
 ALERT_FILE = "viral_seen.json"
 VIRAL_MULTIPLIER = 3
 
+MY_CHANNELS = ["UC44AR7MVps8NNMHfxqf1z3Q"]
+
 ALL_CHANNELS = [
     "theartofwarrr", "ZeckFelms", "Shade_Scrolls", "AstryStudios",
     "Wholesomewendy", "TrickedEntertain", "Yarnhub", "AfrimaxEnglish",
@@ -44,13 +46,9 @@ def get_recent_videos(channel_id, hours=6):
     published_after = (datetime.utcnow() - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
     url = "https://www.googleapis.com/youtube/v3/search"
     params = {
-        "part": "snippet",
-        "channelId": channel_id,
-        "publishedAfter": published_after,
-        "order": "date",
-        "maxResults": 10,
-        "type": "video",
-        "key": YOUTUBE_API_KEY
+        "part": "snippet", "channelId": channel_id,
+        "publishedAfter": published_after, "order": "date",
+        "maxResults": 10, "type": "video", "key": YOUTUBE_API_KEY
     }
     r = requests.get(url, params=params).json()
     return r.get("items", [])
@@ -67,12 +65,9 @@ def get_channel_avg_views(channel_id):
     published_after = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
     url = "https://www.googleapis.com/youtube/v3/search"
     params = {
-        "part": "id",
-        "channelId": channel_id,
-        "publishedAfter": published_after,
-        "type": "video",
-        "maxResults": 20,
-        "key": YOUTUBE_API_KEY
+        "part": "id", "channelId": channel_id,
+        "publishedAfter": published_after, "type": "video",
+        "maxResults": 20, "key": YOUTUBE_API_KEY
     }
     r = requests.get(url, params=params).json()
     items = r.get("items", [])
@@ -107,6 +102,8 @@ def run_viral_check():
         if not channel_id:
             continue
 
+        is_my_channel = channel_id in MY_CHANNELS
+
         videos = get_recent_videos(channel_id, hours=6)
         if not videos:
             continue
@@ -132,49 +129,66 @@ def run_viral_check():
 
             if is_outlier or is_big:
                 multiplier = views / avg_views if avg_views > 0 else 0
+                transcript = get_transcript(vid_id)
 
-                alert = f"🚨 <b>OUTLIER ОБНАРУЖЕН!</b>\n\n"
+                if is_my_channel:
+                    alert = f"🚀 <b>ТВОЁ ВИДЕО ЗАЛЕТЕЛО!</b>\n\n"
+                else:
+                    alert = f"🚨 <b>OUTLIER КОНКУРЕНТА!</b>\n\n"
+
                 alert += f"📺 Канал: @{handle}\n"
                 alert += f"🎬 {title}\n"
                 alert += f"👁 {views:,} просмотров\n"
                 alert += f"❤️ {likes:,} | 💬 {comments:,}\n"
                 if multiplier > 0:
-                    alert += f"📈 В {multiplier:.1f}x больше среднего канала\n"
-                else:
-                    alert += f"📈 Новый канал — {views:,} просмотров за 6 часов\n"
+                    alert += f"📈 В {multiplier:.1f}x больше среднего\n"
                 alert += f"🔗 https://youtube.com/watch?v={vid_id}\n\n"
 
-                transcript = get_transcript(vid_id)
-
                 if transcript:
-                    prompt = f"""
-Вирусное видео канала @{handle} набрало {views:,} просмотров за несколько часов.
+                    prompt = f"""Вирусное видео {'(моё)' if is_my_channel else f'канала @{handle}'} набрало {views:,} просмотров.
 
 ТРАНСКРИПЦИЯ:
 {transcript}
 
 Быстрый анализ:
 1. HOOK — что зацепило в первые 3-5 сек
-2. ВИРУСНЫЙ ТРИГГЕР — почему это взорвалось
-3. СТРУКТУРА — как построено видео
-4. КАК АДАПТИРОВАТЬ для 3D анимации Anna Odyssey
-5. ГОТОВЫЙ ЗАГОЛОВОК для адаптации
-"""
+2. ВИРУСНЫЙ ТРИГГЕР — почему взорвалось
+3. СТРУКТУРА — как построено
+4. ТЕМП — где ускорение, где замедление"""
+
                     response = client.messages.create(
                         model="claude-sonnet-4-20250514",
-                        max_tokens=1000,
+                        max_tokens=600,
                         messages=[{"role": "user", "content": prompt}]
                     )
-                    alert += f"📝 <b>Транскрипция (фрагмент):</b>\n{transcript[:400]}...\n\n"
-                    alert += f"🧠 <b>Анализ:</b>\n{response.content[0].text}"
+                    alert += f"📝 <b>Фрагмент транскрипции:</b>\n{transcript[:300]}...\n\n"
+                    alert += f"🧠 <b>Анализ:</b>\n{response.content[0].text}\n\n"
+                    alert += f"━━━━━━━━━━━━━━━━\n"
+
+                    if is_my_channel:
+                        alert += f"🔁 <b>Дублируем?</b>\n"
+                        alert += f"Напиши <b>дубликат своего</b> — сделаю 10 похожих идей (5 та же идея + 5 похожих)."
+                    else:
+                        alert += f"🔁 <b>Дублируем?</b>\n"
+                        alert += f"Напиши <b>дубликат конкурента</b> — адаптирую под твою нишу (10 вариантов).\n"
+                        alert += f"Транскрипция уже есть — просто укажи канал и я начну."
                 else:
-                    alert += "📝 Транскрипция недоступна — субтитры отключены на видео.\n"
-                    alert += "💡 Используй /analyze для ручного анализа."
+                    alert += f"📝 Транскрипция недоступна.\n\n"
+                    alert += f"━━━━━━━━━━━━━━━━\n"
+
+                    if is_my_channel:
+                        alert += f"🔁 <b>Дублируем?</b>\n"
+                        alert += f"Напиши <b>дубликат своего</b> и опиши идею — сделаю 10 похожих вариантов."
+                    else:
+                        alert += f"🔁 <b>Дублируем?</b>\n"
+                        alert += f"Напиши <b>дубликат конкурента</b> + опиши идею вручную — адаптирую под твою нишу."
 
                 send_telegram(alert)
                 seen[vid_id] = {
                     "handle": handle,
+                    "title": title,
                     "views": views,
+                    "is_my_channel": is_my_channel,
                     "date": datetime.now().isoformat()
                 }
 

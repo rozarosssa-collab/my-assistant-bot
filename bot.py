@@ -476,12 +476,14 @@ async def scheduled_calorie_reset():
 async def post_init(application):
     scheduler = AsyncIOScheduler()
     kyiv_tz = pytz.timezone("Europe/Kiev")
-    scheduler.add_job(lambda: asyncio.get_event_loop().run_in_executor(None, run_daily_digest), CronTrigger(hour=9, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
-    scheduler.add_job(lambda: asyncio.get_event_loop().run_in_executor(None, run_tracker), CronTrigger(hour=9, minute=5, timezone=kyiv_tz), misfire_grace_time=300)
-    scheduler.add_job(lambda: asyncio.get_event_loop().run_in_executor(None, run_monday_plan), CronTrigger(day_of_week="mon", hour=9, minute=10, timezone=kyiv_tz), misfire_grace_time=300)
-    scheduler.add_job(lambda: asyncio.get_event_loop().run_in_executor(None, run_weekly_report), CronTrigger(day_of_week="sun", hour=10, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
-    scheduler.add_job(lambda: asyncio.get_event_loop().run_in_executor(None, run_weekly_forecast), CronTrigger(day_of_week="fri", hour=18, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
-    scheduler.add_job(lambda: asyncio.get_event_loop().run_in_executor(None, run_viral_check), CronTrigger(hour="*/3", timezone=kyiv_tz), misfire_grace_time=300)
+    loop = asyncio.get_event_loop()
+
+    scheduler.add_job(lambda: loop.run_in_executor(None, run_daily_digest), CronTrigger(hour=9, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(lambda: loop.run_in_executor(None, run_tracker), CronTrigger(hour=9, minute=5, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(lambda: loop.run_in_executor(None, run_monday_plan), CronTrigger(day_of_week="mon", hour=9, minute=10, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(lambda: loop.run_in_executor(None, run_weekly_report), CronTrigger(day_of_week="sun", hour=10, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(lambda: loop.run_in_executor(None, run_weekly_forecast), CronTrigger(day_of_week="fri", hour=18, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(lambda: loop.run_in_executor(None, run_viral_check), CronTrigger(hour="*/3", timezone=kyiv_tz), misfire_grace_time=300)
     scheduler.add_job(scheduled_calorie_reset, CronTrigger(hour=0, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
     scheduler.start()
 

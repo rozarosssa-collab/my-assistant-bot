@@ -12,9 +12,9 @@ MY_TELEGRAM_ID = os.getenv("MY_TELEGRAM_ID")
 client = Anthropic(api_key=ANTHROPIC_KEY)
 
 MY_CHANNELS = {
-    "Anna Odyssey": "UC_placeholder_1",
-    "CoColaCat": "UC_placeholder_2",
-    "Midnight Archive": "UC_placeholder_3",
+    "Anna Odyssey": "UClPEf1WtPs3WVlacsg0H7CA",
+    "CoColaCat": "UCYnrKUlHqZRFB0kVF6HwQUw",
+    "Midnight Archive": "UC44AR7MVps8NNMHfxqf1z3Q",
 }
 
 COMPETITOR_CHANNELS = [

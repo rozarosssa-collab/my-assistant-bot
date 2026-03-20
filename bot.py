@@ -17,6 +17,7 @@ from weekly_forecast import run_weekly_forecast, run_monday_plan
 from viral_alert import run_viral_check, get_transcript
 from calories import add_food, get_today_summary, reset_calories, run_daily_reset, DAILY_LIMIT
 from redis_stats import update_tg_stats, update_whisper_stats
+from monthly_report import run_monthly_report
 
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -38,46 +39,43 @@ GUIDE_TEXT = """🤖 ANNA BOT — РУКОВОДСТВО
 🎯 РЕЖИМЫ РАБОТЫ
 Пиши в чат без команд, просто текст:
 
-💡 режим: идеи — генерирует 10 идей для Shorts с описанием визуала, hook и причиной почему зайдёт
-
-✍️ режим: скрипт — пишет полный скрипт с SSML тегами для ElevenLabs v3, готовый к озвучке
-
-🔍 режим: анализ — присылаешь скрипт конкурента текстом, бот разбирает структуру и пишет твою адаптацию
-
-🌀 режим: бенд — запускает методологию Niche Bending, генерирует нишевые бенды с заголовками
-
-📊 режим: стратегия — думает как YouTube стратег, даёт план роста и контент-стратегию
-
-🔥 режим: критик — жёстко и честно оценивает твои идеи или скрипты без смягчений
-
-👾 режим: reddit — переключается на Midnight Archive, пишет и анализирует Reddit-формат
+💡 режим: идеи — генерирует 10 идей для Shorts
+✍️ режим: скрипт — пишет полный скрипт
+🔍 режим: анализ — разбирает скрипт конкурента
+🌀 режим: бенд — методология Niche Bending
+📊 режим: стратегия — план роста канала
+🔥 режим: критик — жёсткая оценка скрипта
+👾 режим: reddit — режим Midnight Archive
+🔁 дубликат конкурента — адаптация чужого видео
+🔁 дубликат своего — развитие своего залетевшего видео
 
 ⚙️ АВТОМАТИЧЕСКИЕ КОМАНДЫ
 
-📰 /digest — аналитика всех конкурентов за 24 часа. Автоматически в 9:00
-📈 /tracker — статистика твоих каналов. Автоматически в 9:05
-📊 /weekly — еженедельный отчёт. Автоматически вс 10:00
-🚨 /viral — вирусные видео. Автоматически каждые 3 часа
-🔮 /forecast — прогноз на неделю. Автоматически пт 18:00
-📋 /plan — контент-план. Автоматически пн 9:10
+📰 /digest — дайджест конкурентов (авто 9:00)
+📈 /tracker — статистика каналов (авто 9:05)
+📊 /weekly — еженедельный отчёт (авто вс 10:00)
+🚨 /viral — вирусные видео (авто каждые 3ч)
+🔮 /forecast — прогноз (авто пт 18:00)
+📋 /plan — контент-план (авто пн 9:10)
+📅 /monthly — месячный отчёт (авто 1-го числа 10:00)
 
 🔧 РУЧНЫЕ КОМАНДЫ
 
-🔬 /analyze ссылка — полный разбор видео конкурента
+🔬 /analyze ссылка — разбор видео конкурента
 📝 /transcript ссылка — транскрипция YouTube видео
-📋 /report username — полный разбор канала
+📋 /report username — разбор канала
 🧠 /remember текст — запомнить навсегда
 💾 /memory — показать память
 🧹 /clear — очистить историю
 
 🥗 КАЛЬКУЛЯТОР КАЛОРИЙ
 
-/cal продукт — добавить еду и получить КБЖУ каждого продукта + общее
-/today — полная сводка за сегодня
-/caloreset — сбросить счётчик вручную
-Лимит: 1800 ккал/день. Сбрасывается автоматически в 00:00.
+/cal продукт — добавить еду
+/today — сводка за сегодня
+/caloreset — сбросить счётчик
+Лимит: 1800 ккал/день
 
-📖 /guide или напиши "гайд" — показать руководство
+📖 /guide — показать руководство
 🌐 Веб-версия: https://anna-bot-web.vercel.app
 🎤 ГОЛОС — просто отправь голосовое"""
 
@@ -247,14 +245,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🎯 Режимы:\n"
         "💡 режим: идеи | ✍️ режим: скрипт\n"
         "🔍 режим: анализ | 🌀 режим: бенд\n"
-        "📊 режим: стратегия | 🔥 режим: критик | 👾 режим: reddit\n\n"
+        "📊 режим: стратегия | 🔥 режим: критик | 👾 режим: reddit\n"
+        "🔁 дубликат конкурента | 🔁 дубликат своего\n\n"
         "⚙️ YouTube:\n"
-        "/digest /tracker /weekly /viral /forecast /plan\n"
+        "/digest /tracker /weekly /viral /forecast /plan /monthly\n"
         "/analyze /transcript /report\n\n"
         "🥗 Калории:\n"
-        "/cal [еда] — добавить и получить КБЖУ\n"
-        "/today — сводка за сегодня\n"
-        "/caloreset — сбросить счётчик\n\n"
+        "/cal [еда] | /today | /caloreset\n\n"
         "/remember /memory /clear /guide\n\n"
         "🎤 Голосовые поддерживаются\n"
         "🌐 https://anna-bot-web.vercel.app"
@@ -378,6 +375,12 @@ async def manual_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ Составляю контент-план...")
     await asyncio.get_event_loop().run_in_executor(None, run_monday_plan)
 
+async def manual_monthly(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    await update.message.reply_text("⏳ Генерирую месячный отчёт...")
+    await asyncio.get_event_loop().run_in_executor(None, run_monthly_report)
+
 async def transcript_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
@@ -420,9 +423,8 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 4. ТЕМП
 5. ЭМОЦИОНАЛЬНЫЙ ARC
 6. СЛАБЫЕ МЕСТА
-7. АДАПТАЦИЯ для Anna Odyssey
-8. СКРИПТ-НАБРОСОК с SSML тегами
-9. 3 ЗАГОЛОВКА"""
+7. АДАПТАЦИЯ для каналов Влада
+8. 3 ЗАГОЛОВКА"""
     reply = claude_call([{"type": "text", "text": "Ты YouTube стратег."}], [{"role": "user", "content": prompt}], max_tokens=2500)
     result = f"🔬 АНАЛИЗ ВИДЕО:\n\n{reply}"
     if len(result) > 4000:
@@ -452,7 +454,7 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     outliers = [v for v in top_videos if v["views"] > avg_recent * 3]
     report = f"📋 ОТЧЁТ: @{handle}\n\n"
     report += f"👥 {subs:,} подп. | 👁 {total_views:,} просмотров | 🎬 {total_videos} видео\n"
-    report += f"⌀ {avg_per_video:,}/видео всего | ⌀ {avg_recent:,.0f}/видео за 30 дней\n"
+    report += f"⌀ {avg_per_video:,}/видео | ⌀ {avg_recent:,.0f}/видео за 30 дней\n"
     report += f"🔥 Outliers: {len(outliers)}\n\n"
     if top_videos:
         report += "🏆 Топ за 30 дней:\n"
@@ -461,7 +463,7 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             report += f"{i}. {v['title']}{tag}\n   👁 {v['views']:,} | 📅 {v['published']}\n\n"
     prompt = f"""Данные канала @{handle}: подп. {subs:,}, просмотры {total_views:,}, видео за 30 дней: {len(top_videos)}, средние: {avg_recent:,.0f}, outliers: {len(outliers)}
 Топ: {chr(10).join([f"- {v['title']}: {v['views']:,}" for v in top_videos[:5]])}
-Анализ: ниша, частота, что работает, что нет, outlier разбор, 3 идеи для Anna Odyssey."""
+Анализ: ниша, частота, что работает, что нет, outlier разбор, 3 идеи для каналов Влада."""
     reply = claude_call([{"type": "text", "text": "Ты YouTube стратег."}], [{"role": "user", "content": prompt}], max_tokens=1500)
     report += f"🧠 АНАЛИЗ:\n\n{reply}"
     if len(report) > 4000:
@@ -484,6 +486,7 @@ async def post_init(application):
     scheduler.add_job(lambda: loop.run_in_executor(None, run_weekly_report), CronTrigger(day_of_week="sun", hour=10, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
     scheduler.add_job(lambda: loop.run_in_executor(None, run_weekly_forecast), CronTrigger(day_of_week="fri", hour=18, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
     scheduler.add_job(lambda: loop.run_in_executor(None, run_viral_check), CronTrigger(hour="*/3", timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(lambda: loop.run_in_executor(None, run_monthly_report), CronTrigger(day=1, hour=10, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
     scheduler.add_job(scheduled_calorie_reset, CronTrigger(hour=0, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
     scheduler.start()
 
@@ -498,6 +501,7 @@ def main():
     app.add_handler(CommandHandler("viral", manual_viral))
     app.add_handler(CommandHandler("forecast", manual_forecast))
     app.add_handler(CommandHandler("plan", manual_plan))
+    app.add_handler(CommandHandler("monthly", manual_monthly))
     app.add_handler(CommandHandler("transcript", transcript_command))
     app.add_handler(CommandHandler("analyze", analyze_command))
     app.add_handler(CommandHandler("report", report_command))

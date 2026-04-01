@@ -27,6 +27,7 @@ OPENAI_KEY = os.getenv("OPENAI_KEY")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 HISTORY_FILE = "history.json"
 MEMORY_FILE = "memory.txt"
+PAUSE_FILE = "bot_paused.json"
 MAX_HISTORY = 10
 
 client = Anthropic(api_key=ANTHROPIC_KEY)
@@ -34,50 +35,46 @@ client = Anthropic(api_key=ANTHROPIC_KEY)
 with open("system_prompt.txt", "r", encoding="utf-8") as f:
     SYSTEM_PROMPT = f.read()
 
+def is_paused():
+    if os.path.exists(PAUSE_FILE):
+        with open(PAUSE_FILE, "r") as f:
+            return json.load(f).get("paused", False)
+    return False
+
+def set_pause(state):
+    with open(PAUSE_FILE, "w") as f:
+        json.dump({"paused": state}, f)
+
 GUIDE_TEXT = """🤖 ANNA BOT — РУКОВОДСТВО
 
 🎯 РЕЖИМЫ РАБОТЫ
-Пиши в чат без команд, просто текст:
-
-💡 режим: идеи — генерирует 10 идей для Shorts
-✍️ режим: скрипт — пишет полный скрипт
-🔍 режим: анализ — разбирает скрипт конкурента
-🌀 режим: бенд — методология Niche Bending
-📊 режим: стратегия — план роста канала
-🔥 режим: критик — жёсткая оценка скрипта
-👾 режим: reddit — режим Midnight Archive
-🔁 дубликат конкурента — адаптация чужого видео
-🔁 дубликат своего — развитие своего залетевшего видео
+💡 режим: идеи | ✍️ режим: скрипт
+🔍 режим: анализ | 🌀 режим: бенд
+📊 режим: стратегия | 🔥 режим: критик | 👾 режим: reddit
+🔁 дубликат конкурента | 🔁 дубликат своего
 
 ⚙️ АВТОМАТИЧЕСКИЕ КОМАНДЫ
-
-📰 /digest — дайджест конкурентов (авто 9:00)
-📈 /tracker — статистика каналов (авто 9:05)
+📰 /digest — дайджест (авто 9:00)
+📈 /tracker — трекер каналов (авто 9:05)
 📊 /weekly — еженедельный отчёт (авто вс 10:00)
 🚨 /viral — вирусные видео (авто каждые 3ч)
 🔮 /forecast — прогноз (авто пт 18:00)
 📋 /plan — контент-план (авто пн 9:10)
 📅 /monthly — месячный отчёт (авто 1-го числа 10:00)
 
+⏸ УПРАВЛЕНИЕ БОТОМ
+/pause — поставить бота на паузу
+/resume — возобновить работу
+
 🔧 РУЧНЫЕ КОМАНДЫ
+🔬 /analyze ссылка | 📝 /transcript ссылка | 📋 /report username
+🧠 /remember текст | 💾 /memory | 🧹 /clear
 
-🔬 /analyze ссылка — разбор видео конкурента
-📝 /transcript ссылка — транскрипция YouTube видео
-📋 /report username — разбор канала
-🧠 /remember текст — запомнить навсегда
-💾 /memory — показать память
-🧹 /clear — очистить историю
+🥗 КАЛОРИИ
+/cal продукт | /today | /caloreset
 
-🥗 КАЛЬКУЛЯТОР КАЛОРИЙ
-
-/cal продукт — добавить еду
-/today — сводка за сегодня
-/caloreset — сбросить счётчик
-Лимит: 1800 ккал/день
-
-📖 /guide — показать руководство
-🌐 Веб-версия: https://anna-bot-web.vercel.app
-🎤 ГОЛОС — просто отправь голосовое"""
+📖 /guide — руководство
+🌐 https://anna-bot-web.vercel.app"""
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -240,8 +237,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
+    status = "⏸ На паузе" if is_paused() else "✅ Активен"
     await update.message.reply_text(
-        "✅ Бот запущен.\n\n"
+        f"✅ Бот запущен. Статус автоматики: {status}\n\n"
         "🎯 Режимы:\n"
         "💡 режим: идеи | ✍️ режим: скрипт\n"
         "🔍 режим: анализ | 🌀 режим: бенд\n"
@@ -250,11 +248,30 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⚙️ YouTube:\n"
         "/digest /tracker /weekly /viral /forecast /plan /monthly\n"
         "/analyze /transcript /report\n\n"
-        "🥗 Калории:\n"
-        "/cal [еда] | /today | /caloreset\n\n"
+        "⏸ Управление: /pause — пауза | /resume — возобновить\n\n"
+        "🥗 Калории: /cal /today /caloreset\n\n"
         "/remember /memory /clear /guide\n\n"
-        "🎤 Голосовые поддерживаются\n"
         "🌐 https://anna-bot-web.vercel.app"
+    )
+
+async def pause_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    set_pause(True)
+    await update.message.reply_text(
+        "⏸ Автоматика поставлена на паузу.\n\n"
+        "Дайджест, трекер, вирал алерты, прогноз и план не будут приходить.\n"
+        "Месячный отчёт продолжает собирать статистику в фоне.\n\n"
+        "Для возобновления: /resume"
+    )
+
+async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    set_pause(False)
+    await update.message.reply_text(
+        "▶️ Автоматика возобновлена.\n\n"
+        "Дайджест, трекер, вирал алерты, прогноз и план снова активны."
     )
 
 async def guide_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -461,9 +478,9 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for i, v in enumerate(top_videos[:5], 1):
             tag = " 🔥" if v in outliers else ""
             report += f"{i}. {v['title']}{tag}\n   👁 {v['views']:,} | 📅 {v['published']}\n\n"
-    prompt = f"""Данные канала @{handle}: подп. {subs:,}, просмотры {total_views:,}, видео за 30 дней: {len(top_videos)}, средние: {avg_recent:,.0f}, outliers: {len(outliers)}
+    prompt = f"""Данные канала @{handle}: подп. {subs:,}, видео за 30 дней: {len(top_videos)}, средние: {avg_recent:,.0f}, outliers: {len(outliers)}
 Топ: {chr(10).join([f"- {v['title']}: {v['views']:,}" for v in top_videos[:5]])}
-Анализ: ниша, частота, что работает, что нет, outlier разбор, 3 идеи для каналов Влада."""
+Анализ: ниша, частота, что работает, что нет, 3 идеи для каналов Влада."""
     reply = claude_call([{"type": "text", "text": "Ты YouTube стратег."}], [{"role": "user", "content": prompt}], max_tokens=1500)
     report += f"🧠 АНАЛИЗ:\n\n{reply}"
     if len(report) > 4000:
@@ -475,17 +492,21 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def scheduled_calorie_reset():
     await asyncio.get_event_loop().run_in_executor(None, run_daily_reset)
 
+def run_if_not_paused(func):
+    if not is_paused():
+        func()
+
 async def post_init(application):
     scheduler = AsyncIOScheduler()
     kyiv_tz = pytz.timezone("Europe/Kiev")
     loop = asyncio.get_event_loop()
 
-    scheduler.add_job(lambda: loop.run_in_executor(None, run_daily_digest), CronTrigger(hour=9, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
-    scheduler.add_job(lambda: loop.run_in_executor(None, run_tracker), CronTrigger(hour=9, minute=5, timezone=kyiv_tz), misfire_grace_time=300)
-    scheduler.add_job(lambda: loop.run_in_executor(None, run_monday_plan), CronTrigger(day_of_week="mon", hour=9, minute=10, timezone=kyiv_tz), misfire_grace_time=300)
-    scheduler.add_job(lambda: loop.run_in_executor(None, run_weekly_report), CronTrigger(day_of_week="sun", hour=10, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
-    scheduler.add_job(lambda: loop.run_in_executor(None, run_weekly_forecast), CronTrigger(day_of_week="fri", hour=18, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
-    scheduler.add_job(lambda: loop.run_in_executor(None, run_viral_check), CronTrigger(hour="*/3", timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(lambda: loop.run_in_executor(None, lambda: run_if_not_paused(run_daily_digest)), CronTrigger(hour=9, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(lambda: loop.run_in_executor(None, lambda: run_if_not_paused(run_tracker)), CronTrigger(hour=9, minute=5, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(lambda: loop.run_in_executor(None, lambda: run_if_not_paused(run_monday_plan)), CronTrigger(day_of_week="mon", hour=9, minute=10, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(lambda: loop.run_in_executor(None, lambda: run_if_not_paused(run_weekly_report)), CronTrigger(day_of_week="sun", hour=10, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(lambda: loop.run_in_executor(None, lambda: run_if_not_paused(run_weekly_forecast)), CronTrigger(day_of_week="fri", hour=18, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
+    scheduler.add_job(lambda: loop.run_in_executor(None, lambda: run_if_not_paused(run_viral_check)), CronTrigger(hour="*/3", timezone=kyiv_tz), misfire_grace_time=300)
     scheduler.add_job(lambda: loop.run_in_executor(None, run_monthly_report), CronTrigger(day=1, hour=10, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
     scheduler.add_job(scheduled_calorie_reset, CronTrigger(hour=0, minute=0, timezone=kyiv_tz), misfire_grace_time=300)
     scheduler.start()
@@ -495,6 +516,8 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("guide", guide_command))
     app.add_handler(CommandHandler("clear", clear_history))
+    app.add_handler(CommandHandler("pause", pause_command))
+    app.add_handler(CommandHandler("resume", resume_command))
     app.add_handler(CommandHandler("digest", manual_digest))
     app.add_handler(CommandHandler("tracker", manual_tracker))
     app.add_handler(CommandHandler("weekly", manual_weekly))

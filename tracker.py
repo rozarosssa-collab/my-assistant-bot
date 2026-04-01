@@ -12,9 +12,9 @@ MY_TELEGRAM_ID = os.getenv("MY_TELEGRAM_ID")
 client = Anthropic(api_key=ANTHROPIC_KEY)
 
 MY_CHANNELS = {
-    "Anna Odyssey (3D)": "UC44AR7MVps8NNMHfxqf1z3Q",
-    "CoColaCat (2D)": "CoColaCat",
-    "Midnight Archive (Reddit)": "Midnights_Archives"
+    "Anna Odyssey (3D)": "UClPEf1WtPs3WVlacsg0H7CA",
+    "CoColaCat (2D)": "UCYnrKUlHqZRFB0kVF6HwQUw",
+    "Midnight Archive (Reddit)": "UC44AR7MVps8NNMHfxqf1z3Q",
 }
 
 STATS_FILE = "channel_stats_history.json"
@@ -35,44 +35,23 @@ def save_stats_history(data):
     with open(STATS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-def get_channel_stats_by_id(channel_id):
+def get_channel_stats(channel_id):
     url = "https://www.googleapis.com/youtube/v3/channels"
-    params = {
-        "part": "statistics,snippet",
-        "id": channel_id,
-        "key": YOUTUBE_API_KEY
-    }
+    params = {"part": "statistics,snippet", "id": channel_id, "key": YOUTUBE_API_KEY}
     r = requests.get(url, params=params).json()
     if "items" in r and r["items"]:
         item = r["items"][0]
         return item["statistics"], item["snippet"]
     return {}, {}
 
-def get_channel_stats_by_handle(handle):
-    url = "https://www.googleapis.com/youtube/v3/channels"
-    params = {
-        "part": "statistics,snippet",
-        "forHandle": handle,
-        "key": YOUTUBE_API_KEY
-    }
-    r = requests.get(url, params=params).json()
-    if "items" in r and r["items"]:
-        item = r["items"][0]
-        return item["statistics"], item["snippet"], item["id"]
-    return {}, {}, None
-
 def get_top_videos_week(channel_id):
     from datetime import timedelta
     published_after = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
     url = "https://www.googleapis.com/youtube/v3/search"
     params = {
-        "part": "snippet",
-        "channelId": channel_id,
-        "publishedAfter": published_after,
-        "order": "viewCount",
-        "maxResults": 3,
-        "type": "video",
-        "key": YOUTUBE_API_KEY
+        "part": "snippet", "channelId": channel_id,
+        "publishedAfter": published_after, "order": "viewCount",
+        "maxResults": 3, "type": "video", "key": YOUTUBE_API_KEY
     }
     r = requests.get(url, params=params).json()
     items = r.get("items", [])
@@ -81,13 +60,10 @@ def get_top_videos_week(channel_id):
     video_ids = [v["id"]["videoId"] for v in items if "videoId" in v.get("id", {})]
     if not video_ids:
         return []
-    stats_url = "https://www.googleapis.com/youtube/v3/videos"
-    stats_params = {
-        "part": "statistics,snippet",
-        "id": ",".join(video_ids),
-        "key": YOUTUBE_API_KEY
-    }
-    stats_r = requests.get(stats_url, params=stats_params).json()
+    stats_r = requests.get(
+        "https://www.googleapis.com/youtube/v3/videos",
+        params={"part": "statistics,snippet", "id": ",".join(video_ids), "key": YOUTUBE_API_KEY}
+    ).json()
     videos = []
     for item in stats_r.get("items", []):
         videos.append({
@@ -106,34 +82,16 @@ def estimate_earnings(views, rpm_range):
 
 def send_telegram(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    max_len = 4000
-    for i in range(0, len(text), max_len):
-        requests.post(url, json={
-            "chat_id": MY_TELEGRAM_ID,
-            "text": text[i:i+max_len],
-            "parse_mode": "HTML"
-        })
+    for i in range(0, len(text), 4000):
+        requests.post(url, json={"chat_id": MY_TELEGRAM_ID, "text": text[i:i+4000], "parse_mode": "HTML"})
 
 def run_tracker():
     today = datetime.now().strftime("%Y-%m-%d")
     history = load_stats_history()
     report = f"📈 <b>ТРЕКЕР ТВОИХ КАНАЛОВ — {datetime.now().strftime('%d %B %Y')}</b>\n\n"
 
-    channel_ids = {
-        "Anna Odyssey (3D)": "UC44AR7MVps8NNMHfxqf1z3Q",
-        "CoColaCat (2D)": None,
-        "Midnight Archive (Reddit)": None
-    }
-    handles = {
-        "CoColaCat (2D)": "CoColaCat",
-        "Midnight Archive (Reddit)": "Midnights_Archives"
-    }
-
-    for name, channel_id in channel_ids.items():
-        if channel_id is None:
-            stats, snippet, channel_id = get_channel_stats_by_handle(handles[name])
-        else:
-            stats, snippet = get_channel_stats_by_id(channel_id)
+    for name, channel_id in MY_CHANNELS.items():
+        stats, snippet = get_channel_stats(channel_id)
 
         if not stats:
             report += f"❌ {name} — не удалось получить данные\n\n"
@@ -155,17 +113,14 @@ def run_tracker():
         subs_day = subs - prev_subs
         views_day = total_views - prev_views
 
-        top_videos = get_top_videos_week(channel_id) if channel_id else []
-
+        top_videos = get_top_videos_week(channel_id)
         rpm_range = RPM_ESTIMATES.get(name, (2, 5))
         week_views = sum(v["views"] for v in top_videos)
         earn_low, earn_high = estimate_earnings(week_views, rpm_range)
 
         report += f"<b>{name}</b>\n"
-        report += f"👥 Подписчики: {subs:,} "
-        report += f"({'+'if subs_day>=0 else ''}{subs_day:,} за день)\n"
-        report += f"👁 Просмотры всего: {total_views:,} "
-        report += f"({'+'if views_day>=0 else ''}{views_day:,} за день)\n"
+        report += f"👥 Подписчики: {subs:,} ({'+'if subs_day>=0 else ''}{subs_day:,} за день)\n"
+        report += f"👁 Просмотры всего: {total_views:,} ({'+'if views_day>=0 else ''}{views_day:,} за день)\n"
         report += f"🎬 Видео на канале: {total_videos}\n"
         report += f"💰 Оценка заработка за неделю: ~${earn_low:.0f}–${earn_high:.0f}\n"
 
@@ -177,33 +132,25 @@ def run_tracker():
                 report += f"   https://youtube.com/watch?v={v['id']}\n"
 
         report += "\n"
-
-        history[name] = {
-            "subs": subs,
-            "views": total_views,
-            "date": today
-        }
+        history[name] = {"subs": subs, "views": total_views, "date": today}
 
     save_stats_history(history)
 
-    prompt = f"""
-Ты YouTube стратег. Вот данные по трём каналам Влада за сегодня:
+    prompt = f"""Ты YouTube стратег. Данные по трём каналам Влада:
 
 {report}
 
-Дай короткий (3-5 предложений) стратегический вывод:
-- Какой канал растёт быстрее всех и почему это хорошо/плохо
-- Что нужно сделать на следующей неделе чтобы ускорить рост
-- Один конкретный совет по каждому каналу
-"""
+Короткий стратегический вывод (3-5 предложений):
+- Какой канал растёт быстрее и почему
+- Что сделать на следующей неделе
+- Один конкретный совет по каждому каналу"""
+
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=800,
         messages=[{"role": "user", "content": prompt}]
     )
-    analysis = response.content[0].text
-    report += f"🧠 <b>Стратегический анализ:</b>\n{analysis}"
-
+    report += f"🧠 <b>Стратегический анализ:</b>\n{response.content[0].text}"
     send_telegram(report)
 
 if __name__ == "__main__":
